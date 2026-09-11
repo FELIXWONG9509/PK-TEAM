@@ -53,7 +53,6 @@ SUITS = ["S", "H", "D", "C"]
 
 
 def hand_score_and_name(hole, community):
-    """返回 (分数, 牌型名称)，分数越大越好"""
     all_cards = hole + community
     if len(all_cards) < 5:
         return (0, "未成牌")
@@ -97,7 +96,6 @@ def hand_score_and_name(hole, community):
             score += k * 10**(8 - 2 * i)
         return score
 
-    # 同花顺
     if flush_suit:
         flush_ranks = [rank_of(c) for c in all_cards if suit_of(c) == flush_suit]
         high = straight_high(flush_ranks)
@@ -106,49 +104,41 @@ def hand_score_and_name(hole, community):
                 return (make_score(9, high, []), "皇家同花顺")
             return (make_score(8, high, []), "同花顺")
 
-    # 四条
     if counts[0] == 4:
         quad = sorted_by_count[0][0]
         kickers = sorted([r for r in ranks if r != quad], reverse=True)[:1]
         return (make_score(7, quad, kickers), "四条")
 
-    # 葫芦
     if counts[0] == 3 and len(counts) >= 2 and counts[1] >= 2:
         trip = sorted_by_count[0][0]
         pair = sorted_by_count[1][0]
         return (make_score(6, trip, [pair]), "葫芦")
 
-    # 同花
     if flush_suit:
         flush_ranks = sorted(
             [rank_of(c) for c in all_cards if suit_of(c) == flush_suit], reverse=True
         )[:5]
         return (make_score(5, flush_ranks[0], flush_ranks[1:]), "同花")
 
-    # 顺子
     high = straight_high(ranks)
     if high is not None:
         return (make_score(4, high, []), "顺子")
 
-    # 三条
     if counts[0] == 3:
         trip = sorted_by_count[0][0]
         kickers = sorted([r for r in ranks if r != trip], reverse=True)[:2]
         return (make_score(3, trip, kickers), "三条")
 
-    # 两对
     if counts[0] == 2 and len(counts) >= 2 and counts[1] == 2:
         pairs = sorted([r for r, c in rank_counts.items() if c >= 2], reverse=True)[:2]
         kicker = max([r for r in ranks if r not in pairs], default=0)
         return (make_score(2, pairs[0], [pairs[1], kicker]), "两对")
 
-    # 一对
     if counts[0] == 2:
         pair = sorted_by_count[0][0]
         kickers = sorted([r for r in ranks if r != pair], reverse=True)[:3]
         return (make_score(1, pair, kickers), "一对")
 
-    # 高牌
     top5 = sorted(ranks, reverse=True)[:5]
     return (make_score(0, top5[0], top5[1:]), "高牌")
 
@@ -419,7 +409,6 @@ class PokerRoom:
         pot_amount = self.pot
 
         if len(active) == 1:
-            # 其他人都弃牌，只剩一个人
             winner_idx = active[0]
             winner_pid = self.seats[winner_idx].player_id
             self.seats[winner_idx].chips += pot_amount
@@ -442,7 +431,6 @@ class PokerRoom:
                 ],
             }
         elif len(active) > 1:
-            # 开牌对决
             showdown_info = []
             best_idx = active[0]
             best_score = -1
@@ -599,12 +587,20 @@ if mode == "solo":
     with server_state_lock["solo_rooms"]:
         if "solo_rooms" not in server_state:
             server_state.solo_rooms = {}
+        # 旧对象没有 last_result 属性 → 重建
+        need_new_solo = False
         if my_id not in server_state.solo_rooms:
+            need_new_solo = True
+        elif not hasattr(server_state.solo_rooms[my_id], "last_result"):
+            need_new_solo = True
+
+        if need_new_solo:
             new_room = PokerRoom(max_players=8)
             new_room.add_player_at(my_id, 0, is_ai=False)
             for i, name in enumerate(AI_NAMES, start=1):
                 new_room.add_player_at(name, i, is_ai=True)
             server_state.solo_rooms[my_id] = new_room
+
         room = server_state.solo_rooms[my_id]
 
         if not room.game_active and room.stage != "showdown":
@@ -627,6 +623,8 @@ else:
         if "room" not in server_state:
             need_new = True
         elif not hasattr(server_state.room, "is_seat_empty"):
+            need_new = True
+        elif not hasattr(server_state.room, "last_result"):
             need_new = True
         if need_new:
             server_state.room = PokerRoom(max_players=8)
@@ -730,9 +728,10 @@ if me and room.is_my_turn(my_id) and room.game_active:
 
     st.divider()
 
-# ---------- 结算面板 ----------
-if room.stage == "showdown" and room.last_result:
-    result = room.last_result
+# ---------- 结算面板（用 getattr 安全读取）----------
+last_result = getattr(room, "last_result", None)
+if room.stage == "showdown" and last_result:
+    result = last_result
     st.subheader("本轮结算")
     st.success(
         f"🏆 **{result['winner_id']}** 赢得底池 **{result['amount']:,}**（{result['reason']}）"
