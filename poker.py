@@ -719,14 +719,21 @@ if room.stage == "showdown" and last_result:
     st.divider()
 
 # ---------- 主区域：数据看板 ----------
-st.subheader("当前牌局")
+st.subheader("当前情况")
+
+stage_map = {"preflop": "翻牌前", "flop": "翻牌", "turn": "转牌", "river": "河牌", "showdown": "结算"}
 
 col_pot, col_stage = st.columns(2)
 with col_pot:
-    st.metric("底池", f"{room.pot:,}")
+    st.markdown(
+        f"<span style='font-size:14pt;'><b>底池：</b>{room.pot:,}</span>",
+        unsafe_allow_html=True,
+    )
 with col_stage:
-    stage_map = {"preflop": "翻牌前", "flop": "翻牌", "turn": "转牌", "river": "河牌", "showdown": "结算"}
-    st.metric("阶段", stage_map.get(room.stage, room.stage))
+    st.markdown(
+        f"<span style='font-size:14pt;'><b>阶段：</b>{stage_map.get(room.stage, room.stage)}</span>",
+        unsafe_allow_html=True,
+    )
 
 st.write("**席位状态**")
 
