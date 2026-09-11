@@ -11,7 +11,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# 隐藏 Streamlit 自带的右上角菜单和页脚
 hide_style = """
 <style>
 #MainMenu {visibility: hidden;}
@@ -41,15 +40,30 @@ with server_state_lock["room"]:
 room.heartbeat(my_id)
 room.cleanup_stale(timeout=60)
 
-# 判断能否加入
-if not room.has_player(my_id) and room.is_full():
-    st.warning("当前协作席位已满，请稍后再试。")
+already_seated = room.has_player(my_id)
+
+# ---------- 选座界面 ----------
+if not already_seated:
+    st.subheader("请选择你的席位")
+
+    if room.is_full():
+        st.warning("当前协作席位已满，请稍后再试。")
+        st.stop()
+
+    cols = st.columns(4)
+    for i in range(8):
+        with cols[i % 4]:
+            if room.is_seat_empty(i):
+                if st.button(f"席位 {i+1}", key=f"seat_{i}"):
+                    room.add_player_at(my_id, i)
+                    st.rerun()
+            else:
+                seat = room.seats[i]
+                st.button(f"席位 {i+1}（{seat.player_id}）", disabled=True, key=f"seat_{i}")
+
     st.stop()
 
-if not room.has_player(my_id):
-    room.add_player(my_id)
-
-# ---------- 侧边栏：伪装成“个人参数配置” ----------
+# ---------- 侧边栏：伪装成"个人参数配置" ----------
 with st.sidebar:
     st.header("⚙️ 个人参数配置")
 
@@ -58,13 +72,11 @@ with st.sidebar:
         st.metric("我的标识", my_id)
         st.metric("当前余额", f"{me.chips:,}")
 
-        # 显示手牌（用代码形式，不像扑克）
         hole = me.hole_cards
         if hole:
             st.write("**当前持有资源**")
             st.code(f"{hole[0]}  {hole[1]}")
 
-        # 操作按钮 —— 用中性词
         if room.is_my_turn(my_id) and room.game_active:
             st.write("**可执行操作**")
 
@@ -92,7 +104,6 @@ with st.sidebar:
 # ---------- 主区域：数据看板形态 ----------
 st.subheader("当前协作状态")
 
-# 底池信息
 col_pot, col_stage = st.columns(2)
 with col_pot:
     st.metric("当前资源池", f"{room.pot:,}")
@@ -100,12 +111,10 @@ with col_stage:
     stage_map = {"preflop": "阶段一", "flop": "阶段二", "turn": "阶段三", "river": "阶段四", "showdown": "结算中"}
     st.metric("当前阶段", stage_map.get(room.stage, room.stage))
 
-# 公共资源（用代码显示，不用扑克花色）
 if room.community_cards:
     st.write("**公共资源**")
     st.code("  ".join(room.community_cards))
 
-# 座位表格
 st.write("**席位状态**")
 
 table_data = []
@@ -128,7 +137,6 @@ for i in range(8):
 
 st.dataframe(table_data, use_container_width=True, hide_index=True)
 
-# 如果游戏未开始且有足够玩家，显示开始按钮（伪装成“启动同步”）
 with server_state_lock["room"]:
     if not room.game_active and room.player_count() >= 2:
         if st.button("🚀 启动同步"):
