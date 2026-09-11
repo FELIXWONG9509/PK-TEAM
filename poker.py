@@ -2,6 +2,7 @@ import streamlit as st
 import random
 import string
 import time
+from collections import Counter
 from dataclasses import dataclass, field
 from typing import Optional
 from streamlit_server_state import server_state, server_state_lock
@@ -25,7 +26,6 @@ header {visibility: hidden;}
 """
 st.markdown(hide_style, unsafe_allow_html=True)
 
-# 每 10 秒自动刷新一次，用于更新心跳
 st_autorefresh(interval=10000, key="hb_refresh")
 
 st.title("📊 团队协作看板 v2.3")
@@ -35,6 +35,7 @@ st.title("📊 团队协作看板 v2.3")
 # ============================================================
 SUITS = ["S", "H", "D", "C"]
 RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
+AI_NAMES = ["A001", "A002", "A003", "A004", "A005"]
 
 
 @dataclass
@@ -47,6 +48,7 @@ class Player:
     current_bet: int = 0
     last_heartbeat: float = 0.0
     folded: bool = False
+    is_ai: bool = False
 
 
 class PokerRoom:
@@ -82,12 +84,12 @@ class PokerRoom:
             return False
         return self.seats[seat_index] is None
 
-    def add_player_at(self, pid, seat_index):
+    def add_player_at(self, pid, seat_index, is_ai=False):
         if seat_index < 0 or seat_index >= self.max_players:
             return False
         if self.seats[seat_index] is not None:
             return False
-        self.seats[seat_index] = Player(player_id=pid)
+        self.seats[seat_index] = Player(player_id=pid, is_ai=is_ai)
         self.seats[seat_index].last_heartbeat = time.time()
         return True
 
@@ -112,7 +114,9 @@ class PokerRoom:
         now = time.time()
         for i in range(self.max_players):
             s = self.seats[i]
-            if s is not None and (now - s.last_heartbeat) > timeout:
+            if s is None or s.is_ai:
+                continue
+            if (now - s.last_heartbeat) > timeout:
                 self.seats[i] = None
 
     # ---------- 游戏流程 ----------
@@ -316,10 +320,107 @@ class PokerRoom:
 
 
 # ============================================================
+# AI 决策
+# ============================================================
+
+def evaluate_hand_strength(hole, community):
+    """返回 0~1 的手牌强度估值"""
+    if not hole or len(hole) < 2:
+        return 0.0
+
+    rank_order = {r: i for i, r in enumerate(RANKS)}
+
+    def card_rank(c):
+        return rank_order.get(c.split("-")[0], 0)
+
+    def card_suit(c):
+        return c.split("-")[1]
+
+    r1, r2 = card_rank(hole[0]), card_rank(hole[1])
+    s1, s2 = card_suit(hole[0]), card_suit(hole[1])
+
+    score = 0.0
+    score += max(r1, r2) / 12 * 0.3
+
+    if r1 == r2:
+        score += 0.35 + (r1 / 12) * 0.15
+
+    if s1 == s2:
+        score += 0.08
+
+    if abs(r1 - r2) == 1:
+        score += 0.05
+
+    if community:
+        all_ranks = [card_rank(c) for c in community] + [r1, r2]
+        all_suits = [card_suit(c) for c in community] + [s1, s2]
+
+        rank_counts = Counter(all_ranks)
+        max_count = max(rank_counts.values())
+        if max_count >= 2:
+            score += (max_count - 1) * 0.15
+
+        suit_counts = Counter(all_suits)
+        max_suit = max(suit_counts.values())
+        if max_suit >= 4:
+            score += 0.15
+        if max_suit >= 5:
+            score += 0.25
+
+    return min(score, 1.0)
+
+
+def ai_take_action(room, ai_player):
+    """AI 执行一次决策"""
+    pid = ai_player.player_id
+    to_call = room.current_bet - ai_player.current_bet
+    strength = evaluate_hand_strength(ai_player.hole_cards, room.community_cards)
+    strength += random.uniform(-0.1, 0.1)
+    strength = max(0.0, min(1.0, strength))
+
+    cost_ratio = to_call / max(ai_player.chips, 1)
+
+    if strength > 0.65:
+        if ai_player.chips > room.current_bet + room.blind_big * 2:
+            raise_amount = room.blind_big * random.choice([1, 2, 3])
+            room.player_raise(pid, raise_amount)
+        else:
+            room.player_check_or_call(pid)
+    elif strength > 0.35:
+        if to_call == 0:
+            room.player_check_or_call(pid)
+        elif cost_ratio < 0.15:
+            room.player_check_or_call(pid)
+        else:
+            room.player_fold(pid)
+    else:
+        if to_call == 0:
+            room.player_check_or_call(pid)
+        elif cost_ratio < 0.05:
+            room.player_check_or_call(pid)
+        else:
+            room.player_fold(pid)
+
+
+def process_ai_actions(room):
+    """让所有连续的 AI 玩家依次行动，直到轮到人类或本回合结束"""
+    for _ in range(100):
+        if not room.game_active:
+            break
+        idx = room.current_turn_index
+        if idx < 0 or idx >= room.max_players:
+            break
+        seat = room.seats[idx]
+        if seat is None or not seat.is_ai:
+            break
+        ai_take_action(room, seat)
+
+
+# ============================================================
 # Streamlit UI
 # ============================================================
 
-# ---------- 玩家身份（存在 URL 参数里，刷新不变） ----------
+# ---------- 玩家身份 ----------
 if "player_id" not in st.session_state:
     if "pid" in st.query_params:
         st.session_state.player_id = st.query_params["pid"]
@@ -330,43 +431,82 @@ if "player_id" not in st.session_state:
 
 my_id = st.session_state.player_id
 
-# ---------- 初始化/获取全局房间 ----------
-with server_state_lock["room"]:
-    need_new = False
-    if "room" not in server_state:
-        need_new = True
-    elif not hasattr(server_state.room, "is_seat_empty"):
-        need_new = True
-    if need_new:
-        server_state.room = PokerRoom(max_players=8)
-    room = server_state.room
+# ---------- 判断模式 ----------
+mode = st.query_params.get("mode", "multi")
 
-    room.heartbeat(my_id)
-    room.cleanup_stale(timeout=15)
+if mode == "solo":
+    # ---------- 单人模式 ----------
+    with server_state_lock["solo_rooms"]:
+        if "solo_rooms" not in server_state:
+            server_state.solo_rooms = {}
+        if my_id not in server_state.solo_rooms:
+            room = PokerRoom(max_players=8)
+            # 玩家坐 0 号位，AI 坐 1~5 号位
+            room.add_player_at(my_id, 0, is_ai=False)
+            for i, name in enumerate(AI_NAMES, start=1):
+                room.add_player_at(name, i, is_ai=True)
+            server_state.solo_rooms[my_id] = room
+        room = server_state.solo_rooms[my_id]
 
-already_seated = room.has_player(my_id)
+    # 没有开始就自动开始
+    if not room.game_active and room.stage != "showdown":
+        room.start_new_hand()
 
-# ---------- 选座界面 ----------
-if not already_seated:
-    st.subheader("请选择你的席位")
+    # 让 AI 自动行动
+    process_ai_actions(room)
 
-    if room.is_full():
-        st.warning("当前协作席位已满，请稍后再试。")
+    # 顶部提示条 + 返回按钮
+    col_a, col_b = st.columns([4, 1])
+    with col_a:
+        st.caption("🎯 单人练习模式（对方为模拟账户）")
+    with col_b:
+        if st.button("← 返回大厅"):
+            st.query_params["mode"] = "multi"
+            st.rerun()
+
+else:
+    # ---------- 多人模式 ----------
+    with server_state_lock["room"]:
+        need_new = False
+        if "room" not in server_state:
+            need_new = True
+        elif not hasattr(server_state.room, "is_seat_empty"):
+            need_new = True
+        if need_new:
+            server_state.room = PokerRoom(max_players=8)
+        room = server_state.room
+
+        room.heartbeat(my_id)
+        room.cleanup_stale(timeout=15)
+
+    already_seated = room.has_player(my_id)
+
+    # ---------- 选座界面 ----------
+    if not already_seated:
+        st.subheader("请选择你的席位")
+
+        if room.is_full():
+            st.warning("当前协作席位已满，请稍后再试。")
+            st.stop()
+
+        cols = st.columns(4)
+        for i in range(8):
+            with cols[i % 4]:
+                if room.is_seat_empty(i):
+                    if st.button(f"席位 {i+1}", key=f"seat_{i}"):
+                        with server_state_lock["room"]:
+                            room.add_player_at(my_id, i)
+                        st.rerun()
+                else:
+                    seat = room.seats[i]
+                    st.button(f"席位 {i+1}（{seat.player_id}）", disabled=True, key=f"seat_{i}")
+
+        st.divider()
+        if st.button("🎯 单人练习"):
+            st.query_params["mode"] = "solo"
+            st.rerun()
+
         st.stop()
-
-    cols = st.columns(4)
-    for i in range(8):
-        with cols[i % 4]:
-            if room.is_seat_empty(i):
-                if st.button(f"席位 {i+1}", key=f"seat_{i}"):
-                    with server_state_lock["room"]:
-                        room.add_player_at(my_id, i)
-                    st.rerun()
-            else:
-                seat = room.seats[i]
-                st.button(f"席位 {i+1}（{seat.player_id}）", disabled=True, key=f"seat_{i}")
-
-    st.stop()
 
 # ---------- 侧边栏 ----------
 with st.sidebar:
@@ -389,8 +529,8 @@ with st.sidebar:
 
             with col1:
                 if st.button("✅ 确认当前方案"):
-                    with server_state_lock["room"]:
-                        room.player_check_or_call(my_id)
+                    room.player_check_or_call(my_id)
+                    process_ai_actions(room)
                     st.rerun()
 
                 if st.button("🔄 调整投入"):
@@ -399,14 +539,14 @@ with st.sidebar:
                         step=room.blind_big, key="raise_amount"
                     )
                     if st.button("执行调整"):
-                        with server_state_lock["room"]:
-                            room.player_raise(my_id, int(amount))
+                        room.player_raise(my_id, int(amount))
+                        process_ai_actions(room)
                         st.rerun()
 
             with col2:
                 if st.button("⏸️ 暂不参与本轮"):
-                    with server_state_lock["room"]:
-                        room.player_fold(my_id)
+                    room.player_fold(my_id)
+                    process_ai_actions(room)
                     st.rerun()
 
 # ---------- 主区域 ----------
@@ -433,11 +573,13 @@ for i in range(8):
     else:
         is_me = " ◀" if seat.player_id == my_id else ""
         status = "活跃" if seat.active else "已退出"
+        if seat.is_ai:
+            status = "活跃"
         if room.is_my_turn(seat.player_id) and room.game_active:
             status = "待操作"
         table_data.append({
             "席位": i + 1,
-            "标识": seat.player_id + is_me,
+            "标识": seat.player_id + is_mark if False else (seat.player_id + is_me),
             "状态": status,
             "余额": f"{seat.chips:,}",
             "本轮动作": seat.last_action or "—",
@@ -445,14 +587,24 @@ for i in range(8):
 
 st.dataframe(table_data, use_container_width=True, hide_index=True)
 
-with server_state_lock["room"]:
-    if not room.game_active and room.player_count() >= 2:
-        if st.button("🚀 启动同步"):
-            room.start_new_hand()
-            st.rerun()
+# 多人模式下的按钮
+if mode != "solo":
+    with server_state_lock["room"]:
+        if not room.game_active and room.player_count() >= 2:
+            if st.button("🚀 启动同步"):
+                room.start_new_hand()
+                st.rerun()
 
+        if room.game_active and room.stage == "showdown":
+            st.info("本轮同步已完成。")
+            if st.button("📋 开始下一轮"):
+                room.start_new_hand()
+                st.rerun()
+else:
+    # 单人模式的按钮
     if room.game_active and room.stage == "showdown":
         st.info("本轮同步已完成。")
         if st.button("📋 开始下一轮"):
             room.start_new_hand()
+            process_ai_actions(room)
             st.rerun()
