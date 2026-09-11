@@ -29,7 +29,7 @@ st.title("台账管理表")
 # ============================================================
 # 房间版本号（每次改代码把这个数字 +1，旧房间会自动重建）
 # ============================================================
-ROOM_VERSION = 6
+ROOM_VERSION = 7
 
 # ============================================================
 # 牌面显示转换（花色用黑色图形符号）
@@ -39,7 +39,6 @@ RANK_CN = {"T": "10", "J": "J", "Q": "Q", "K": "K", "A": "A"}
 
 
 def card_to_symbol(card):
-    """返回 'A♠' 这种纯文本符号形式"""
     if not card or "-" not in card:
         return card
     rank, suit = card.split("-")
@@ -49,12 +48,10 @@ def card_to_symbol(card):
 
 
 def cards_to_symbol(cards, gap="   "):
-    """多张牌用 gap 分隔"""
     return gap.join(card_to_symbol(c) for c in cards)
 
 
 def cards_to_html(cards, gap="   "):
-    """转成 HTML 片段，花色强制黑色"""
     inner = gap.join(card_to_symbol(c) for c in cards)
     return (
         f"<span style='color: black !important; "
@@ -64,12 +61,10 @@ def cards_to_html(cards, gap="   "):
 
 
 def card_to_cn(card):
-    """保留原函数名，返回符号形式（兼容旧调用）"""
     return card_to_symbol(card)
 
 
 def cards_to_cn(cards):
-    """保留原函数名，返回符号形式（兼容旧调用）"""
     return cards_to_symbol(cards)
 
 
@@ -129,7 +124,6 @@ def hand_score_and_name(hole, community):
             score += k * 10**(8 - 2 * i)
         return score
 
-    # 同花顺 / 皇家同花顺
     if flush_suit:
         flush_ranks = [rank_of(c) for c in all_cards if suit_of(c) == flush_suit]
         straight = find_straight(flush_ranks)
@@ -147,7 +141,6 @@ def hand_score_and_name(hole, community):
                 return (make_score(9, high, []), "皇家同花顺", best_5)
             return (make_score(8, high, []), "同花顺", best_5)
 
-    # 四条
     if counts[0] == 4:
         quad = sorted_by_count[0][0]
         best_5 = list(cards_by_rank[quad][:4])
@@ -157,7 +150,6 @@ def hand_score_and_name(hole, community):
             best_5.append(cards_by_rank[kicker][0])
         return (make_score(7, quad, [kicker]), "四条", best_5)
 
-    # 葫芦
     if counts[0] == 3 and len(counts) >= 2 and counts[1] >= 2:
         trip = sorted_by_count[0][0]
         pair_candidates = [r for r, c in rank_counts.items() if c >= 2 and r != trip]
@@ -165,7 +157,6 @@ def hand_score_and_name(hole, community):
         best_5 = list(cards_by_rank[trip][:3]) + list(cards_by_rank[pair_rank][:2])
         return (make_score(6, trip, [pair_rank]), "葫芦", best_5)
 
-    # 同花
     if flush_suit:
         flush_cards = [c for c in all_cards if suit_of(c) == flush_suit]
         flush_cards.sort(key=lambda c: rank_of(c), reverse=True)
@@ -173,7 +164,6 @@ def hand_score_and_name(hole, community):
         flush_ranks = [rank_of(c) for c in best_5]
         return (make_score(5, flush_ranks[0], flush_ranks[1:]), "同花", best_5)
 
-    # 顺子
     straight = find_straight(ranks)
     if straight is not None:
         best_5 = []
@@ -186,7 +176,6 @@ def hand_score_and_name(hole, community):
                     break
         return (make_score(4, straight[0], []), "顺子", best_5)
 
-    # 三条
     if counts[0] == 3:
         trip = sorted_by_count[0][0]
         best_5 = list(cards_by_rank[trip][:3])
@@ -195,7 +184,6 @@ def hand_score_and_name(hole, community):
             best_5.append(cards_by_rank[r][0])
         return (make_score(3, trip, kickers), "三条", best_5)
 
-    # 两对
     if counts[0] == 2 and len(counts) >= 2 and counts[1] == 2:
         pairs = sorted([r for r, c in rank_counts.items() if c >= 2], reverse=True)[:2]
         best_5 = list(cards_by_rank[pairs[0]][:2]) + list(cards_by_rank[pairs[1]][:2])
@@ -205,7 +193,6 @@ def hand_score_and_name(hole, community):
             best_5.append(cards_by_rank[kicker][0])
         return (make_score(2, pairs[0], [pairs[1], kicker]), "两对", best_5)
 
-    # 一对
     if counts[0] == 2:
         pair = sorted_by_count[0][0]
         best_5 = list(cards_by_rank[pair][:2])
@@ -214,7 +201,6 @@ def hand_score_and_name(hole, community):
             best_5.append(cards_by_rank[r][0])
         return (make_score(1, pair, kickers), "一对", best_5)
 
-    # 高牌
     top5_ranks = sorted(ranks, reverse=True)[:5]
     best_5 = []
     for r in top5_ranks:
@@ -725,13 +711,52 @@ else:
             st.warning("当前会议频道已满，请稍后再试。")
             st.stop()
 
+        # ============ 情况 1：用户已经选了某个座位，等待输入名称 ============
+        if st.session_state.get("pending_seat") is not None:
+            pending_i = st.session_state.pending_seat
+            st.info(f"你选择了 **会议频道{pending_i+1}**，请输入你的标识名称")
+
+            name_input = st.text_input(
+                "标识名称（最多 12 个字）",
+                value="",
+                max_chars=12,
+                key="join_name_input",
+            )
+
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("确认进入", key="confirm_join", use_container_width=True):
+                    name_clean = name_input.strip()
+                    if not name_clean:
+                        st.error("标识名称不能为空")
+                    elif room.has_player(name_clean):
+                        st.error(f"标识名称「{name_clean}」已被占用，请换一个")
+                    elif not room.is_seat_empty(pending_i):
+                        st.error(f"会议频道{pending_i+1}已被占用，请重新选择")
+                        st.session_state.pending_seat = None
+                        st.rerun()
+                    else:
+                        with server_state_lock["room"]:
+                            room.add_player_at(name_clean, pending_i)
+                        st.session_state.player_id = name_clean
+                        st.query_params["pid"] = name_clean
+                        st.session_state.pending_seat = None
+                        st.rerun()
+
+            with c2:
+                if st.button("取消", key="cancel_join", use_container_width=True):
+                    st.session_state.pending_seat = None
+                    st.rerun()
+
+            st.stop()
+
+        # ============ 情况 2：显示座位按钮 ============
         cols = st.columns(4)
         for i in range(8):
             with cols[i % 4]:
                 if room.is_seat_empty(i):
                     if st.button(f"会议频道{i+1}", key=f"seat_{i}"):
-                        with server_state_lock["room"]:
-                            room.add_player_at(my_id, i)
+                        st.session_state.pending_seat = i
                         st.rerun()
                 else:
                     seat = room.seats[i]
@@ -739,10 +764,14 @@ else:
 
         st.divider()
         if st.button("自习室", key="enter_solo"):
+            st.session_state.pending_seat = None
             st.session_state.mode = "solo"
             st.rerun()
 
         st.stop()
+
+    # ---------- 已入座 ----------
+    st.session_state.pending_seat = None
 
     top_col_a, top_col_b = st.columns([4, 1])
     with top_col_a:
