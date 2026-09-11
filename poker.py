@@ -12,8 +12,8 @@ from streamlit_autorefresh import st_autorefresh
 # 页面伪装配置
 # ============================================================
 st.set_page_config(
-    page_title="团队协作看板",
-    page_icon="📊",
+    page_title="台账管理表",
+    page_icon="📋",
     layout="wide",
 )
 
@@ -26,7 +26,7 @@ header {visibility: hidden;}
 """
 st.markdown(hide_style, unsafe_allow_html=True)
 
-st.title("📊 团队协作看板 v2.3")
+st.title("台账管理表")
 
 # ============================================================
 # 扑克逻辑
@@ -420,7 +420,7 @@ if "player_id" not in st.session_state:
 
 my_id = st.session_state.player_id
 
-# ---------- 模式（用 session_state，比 URL 参数可靠）----------
+# ---------- 模式 ----------
 if "mode" not in st.session_state:
     st.session_state.mode = "multi"
 
@@ -443,11 +443,9 @@ if mode == "solo":
             server_state.solo_rooms[my_id] = room
         room = server_state.solo_rooms[my_id]
 
-        # 新一轮：如果没开始且不在结算，就开新一轮
         if not room.game_active and room.stage != "showdown":
             room.start_new_hand()
 
-        # 让 AI 自动行动
         process_ai_actions(room)
 
     col_a, col_b = st.columns([4, 1])
