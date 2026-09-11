@@ -48,6 +48,20 @@ class PokerRoom:
     def has_player(self, pid):
         return any(s is not None and s.player_id == pid for s in self.seats)
 
+    def is_seat_empty(self, seat_index):
+        if seat_index < 0 or seat_index >= self.max_players:
+            return False
+        return self.seats[seat_index] is None
+
+    def add_player_at(self, pid, seat_index):
+        if seat_index < 0 or seat_index >= self.max_players:
+            return False
+        if self.seats[seat_index] is not None:
+            return False
+        self.seats[seat_index] = Player(player_id=pid)
+        self.seats[seat_index].last_heartbeat = time.time()
+        return True
+
     def add_player(self, pid):
         for i in range(self.max_players):
             if self.seats[i] is None:
@@ -98,7 +112,6 @@ class PokerRoom:
         return [i for i, s in enumerate(self.seats) if s is not None and s.active and not s.folded]
 
     def start_new_hand(self):
-        # 重置状态
         for s in self.seats:
             if s is not None:
                 s.hole_cards = []
@@ -119,16 +132,13 @@ class PokerRoom:
             self.game_active = False
             return
 
-        # 发牌
         self.deck = self._build_deck()
         for _ in range(2):
             for i in active_indices:
                 self.seats[i].hole_cards.append(self.deck.pop())
 
-        # 移动庄家
         self.dealer_index = self._next_active_index(self.dealer_index)
 
-        # 下盲注
         sb_idx = self._next_active_index(self.dealer_index)
         bb_idx = self._next_active_index(sb_idx)
 
@@ -138,7 +148,6 @@ class PokerRoom:
             self._post_bet(bb_idx, self.blind_big, "大盲")
 
         self.current_bet = self.blind_big
-        # 从大盲下一位开始行动
         self.current_turn_index = self._next_active_index(bb_idx)
         self.last_raiser_index = bb_idx
 
@@ -208,7 +217,6 @@ class PokerRoom:
             self._end_hand()
             return
 
-        # 检查本轮是否结束：所有活跃玩家都已行动且下注相等
         if self._betting_round_complete():
             self._next_stage()
             return
@@ -224,7 +232,6 @@ class PokerRoom:
             s = self.seats[i]
             if s.current_bet != self.current_bet and not s.folded:
                 return False
-        # 检查是否所有活跃玩家都已行动过至少一次
         for i in active:
             if i not in self.acted_this_round and i != self.last_raiser_index:
                 return False
@@ -252,7 +259,6 @@ class PokerRoom:
             self._end_hand()
             return
 
-        # 从庄家下一位开始
         self.current_turn_index = self._next_active_index(self.dealer_index)
 
     def _end_hand(self):
@@ -262,7 +268,6 @@ class PokerRoom:
             self.seats[winner_idx].chips += self.pot
             self.seats[winner_idx].last_action = "获得资源池"
         else:
-            # 简化：比牌（实际项目应使用 pokerkit 的 evaluator）
             winner_idx = self._simple_showdown(active)
             self.seats[winner_idx].chips += self.pot
             self.seats[winner_idx].last_action = "获得资源池"
@@ -273,8 +278,6 @@ class PokerRoom:
         self.current_turn_index = -1
 
     def _simple_showdown(self, active_indices):
-        # 极简比牌逻辑：比较手牌+公共牌中的最大单牌
-        # 真正的德州扑克应使用 pokerkit 的 hand evaluator
         best_idx = active_indices[0]
         best_score = -1
         for i in active_indices:
