@@ -29,24 +29,48 @@ st.title("台账管理表")
 # ============================================================
 # 房间版本号（每次改代码把这个数字 +1，旧房间会自动重建）
 # ============================================================
-ROOM_VERSION = 5
+ROOM_VERSION = 6
 
 # ============================================================
-# 牌面显示转换
+# 牌面显示转换（花色用黑色图形符号）
 # ============================================================
-SUIT_CN = {"S": "黑桃", "H": "红心", "D": "方块", "C": "梅花"}
+SUIT_SYMBOL = {"S": "♠", "H": "♥", "D": "♦", "C": "♣"}
 RANK_CN = {"T": "10", "J": "J", "Q": "Q", "K": "K", "A": "A"}
 
 
-def card_to_cn(card):
+def card_to_symbol(card):
+    """返回 'A♠' 这种纯文本符号形式"""
     if not card or "-" not in card:
         return card
     rank, suit = card.split("-")
-    return f"{SUIT_CN.get(suit, suit)}{RANK_CN.get(rank, rank)}"
+    rank_display = RANK_CN.get(rank, rank)
+    suit_symbol = SUIT_SYMBOL.get(suit, suit)
+    return f"{rank_display}{suit_symbol}"
+
+
+def cards_to_symbol(cards, gap="   "):
+    """多张牌用 gap 分隔"""
+    return gap.join(card_to_symbol(c) for c in cards)
+
+
+def cards_to_html(cards, gap="   "):
+    """转成 HTML 片段，花色强制黑色"""
+    inner = gap.join(card_to_symbol(c) for c in cards)
+    return (
+        f"<span style='color: black !important; "
+        f"font-family: Consolas, Menlo, monospace; "
+        f"font-size: 16px;'>{inner}</span>"
+    )
+
+
+def card_to_cn(card):
+    """保留原函数名，返回符号形式（兼容旧调用）"""
+    return card_to_symbol(card)
 
 
 def cards_to_cn(cards):
-    return "  ".join(card_to_cn(c) for c in cards)
+    """保留原函数名，返回符号形式（兼容旧调用）"""
+    return cards_to_symbol(cards)
 
 
 # ============================================================
@@ -812,11 +836,16 @@ if room.stage == "showdown" and last_result:
     st.write("**公开情况**")
     for info in result["showdown"]:
         marker = "获得 " if info.get("is_winner") else "　 "
-        st.write(
-            f"{marker}**{info['pid']}**：{cards_to_cn(info['cards'])} —— {info['hand_name']}"
+        st.markdown(
+            f"{marker}**{info['pid']}**：{cards_to_html(info['cards'])} —— {info['hand_name']}",
+            unsafe_allow_html=True,
         )
         if info.get("best_5"):
-            st.caption(f"　　最佳组合：{cards_to_cn(info['best_5'])}")
+            st.markdown(
+                f"　　<span style='color: gray;'>最佳组合：</span>"
+                f"{cards_to_html(info['best_5'])}",
+                unsafe_allow_html=True,
+            )
 
     st.divider()
 
@@ -880,7 +909,7 @@ else:
                 process_ai_actions(room)
             st.rerun()
 
-# ---------- 底部：我的信息 + 公共牌 + 资源池/阶段 ----------
+# ---------- 底部：我的信息 + 公共 + 资源池/阶段 ----------
 st.divider()
 
 me = room.get_player(my_id)
@@ -901,15 +930,15 @@ with info_col2:
         st.metric("我的资源", "—")
 
 with info_col3:
-    st.write("**我的手牌**")
+    st.write("**我的**")
     if me and me.hole_cards:
-        st.code(cards_to_cn(me.hole_cards))
+        st.markdown(cards_to_html(me.hole_cards), unsafe_allow_html=True)
     else:
         st.caption("等待发牌…")
 
-st.write("**公共牌**")
+st.write("**公共**")
 if room.community_cards:
-    st.code(cards_to_cn(room.community_cards))
+    st.markdown(cards_to_html(room.community_cards), unsafe_allow_html=True)
 else:
     st.caption("等待发牌…")
 
