@@ -13,7 +13,6 @@ from streamlit_autorefresh import st_autorefresh
 # ============================================================
 st.set_page_config(
     page_title="台账管理表",
-    page_icon="📋",
     layout="wide",
 )
 
@@ -609,7 +608,7 @@ if mode == "solo":
 
     col_a, col_b = st.columns([4, 1])
     with col_a:
-        st.caption("🎯 单人练习模式（对方为模拟账户）")
+        st.caption("单人练习模式（对方为模拟账户）")
     with col_b:
         if st.button("← 返回大厅", key="back_to_lobby"):
             st.session_state.mode = "multi"
@@ -654,7 +653,7 @@ else:
                     st.button(f"席位 {i+1}（{seat.player_id}）", disabled=True, key=f"seat_{i}")
 
         st.divider()
-        if st.button("🎯 单人练习", key="enter_solo"):
+        if st.button("单人练习", key="enter_solo"):
             st.session_state.mode = "solo"
             st.rerun()
 
@@ -663,12 +662,12 @@ else:
 # ---------- 主区域：当前操作面板 ----------
 me = room.get_player(my_id)
 if me and room.is_my_turn(my_id) and room.game_active:
-    st.success("▶️ 轮到你操作")
+    st.success("轮到你操作")
 
     c1, c2, c3 = st.columns([1, 2, 1])
 
     with c1:
-        if st.button("✅ 确认当前方案", key="main_call", use_container_width=True):
+        if st.button("确认当前方案", key="main_call", use_container_width=True):
             lock = server_state_lock["solo_rooms"] if mode == "solo" else server_state_lock["room"]
             with lock:
                 room.player_check_or_call(my_id)
@@ -683,7 +682,7 @@ if me and room.is_my_turn(my_id) and room.game_active:
             step=room.blind_big,
             key="raise_amount_main",
         )
-        if st.button("🔄 执行调整", key="main_raise", use_container_width=True):
+        if st.button("执行调整", key="main_raise", use_container_width=True):
             lock = server_state_lock["solo_rooms"] if mode == "solo" else server_state_lock["room"]
             with lock:
                 room.player_raise(my_id, int(amount))
@@ -691,7 +690,7 @@ if me and room.is_my_turn(my_id) and room.game_active:
             st.rerun()
 
     with c3:
-        if st.button("⏸️ 暂不参与本轮", key="main_fold", use_container_width=True):
+        if st.button("暂不参与本轮", key="main_fold", use_container_width=True):
             lock = server_state_lock["solo_rooms"] if mode == "solo" else server_state_lock["room"]
             with lock:
                 room.player_fold(my_id)
@@ -706,12 +705,12 @@ if room.stage == "showdown" and last_result:
     result = last_result
     st.subheader("本轮结算")
     st.success(
-        f"🏆 **{result['winner_id']}** 获得资源池 **{result['amount']:,}**（{result['reason']}）"
+        f"**{result['winner_id']}** 获得资源池 **{result['amount']:,}**（{result['reason']}）"
     )
 
     st.write("**开牌情况**")
     for info in result["showdown"]:
-        marker = "🏆 " if info.get("is_winner") else "　 "
+        marker = "赢 " if info.get("is_winner") else "　 "
         st.write(
             f"{marker}**{info['pid']}**：{cards_to_cn(info['cards'])} —— {info['hand_name']}"
         )
@@ -763,16 +762,16 @@ st.dataframe(table_data, use_container_width=True, hide_index=True)
 if mode == "multi":
     with server_state_lock["room"]:
         if not room.game_active and room.stage == "showdown":
-            if st.button("📋 开始下一轮", key="next_multi"):
+            if st.button("开始下一轮", key="next_multi"):
                 room.start_new_hand()
                 st.rerun()
         elif not room.game_active and room.player_count() >= 2:
-            if st.button("🚀 启动同步", key="start_multi"):
+            if st.button("启动同步", key="start_multi"):
                 room.start_new_hand()
                 st.rerun()
 else:
     if not room.game_active and room.stage == "showdown":
-        if st.button("📋 开始下一轮", key="next_solo"):
+        if st.button("开始下一轮", key="next_solo"):
             with server_state_lock["solo_rooms"]:
                 room.start_new_hand()
                 process_ai_actions(room)
