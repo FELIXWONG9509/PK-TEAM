@@ -581,7 +581,7 @@ mode = st.session_state.mode
 if mode == "multi":
     st_autorefresh(interval=10000, key="hb_refresh")
 
-# ---------- 单人模式 ----------
+# ---------- 单人模式（自习室）----------
 if mode == "solo":
     with server_state_lock["solo_rooms"]:
         if "solo_rooms" not in server_state:
@@ -608,7 +608,7 @@ if mode == "solo":
 
     col_a, col_b = st.columns([4, 1])
     with col_a:
-        st.caption("单人练习模式（对方为模拟账户）")
+        st.caption("自习室模式（对方为模拟账户）")
     with col_b:
         if st.button("← 返回大厅", key="back_to_lobby"):
             st.session_state.mode = "multi"
@@ -653,7 +653,7 @@ else:
                     st.button(f"会议频道{i+1}（{seat.player_id}）", disabled=True, key=f"seat_{i}")
 
         st.divider()
-        if st.button("单人练习", key="enter_solo"):
+        if st.button("自习室", key="enter_solo"):
             st.session_state.mode = "solo"
             st.rerun()
 
