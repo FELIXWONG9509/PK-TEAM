@@ -17,7 +17,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# 只隐藏菜单和页脚，保留顶部 header（侧边栏开关在里面）
 hide_style = """
 <style>
 #MainMenu {visibility: hidden;}
@@ -194,7 +193,7 @@ class PokerRoom:
         p = self.get_player(pid)
         if p:
             p.folded = True
-            p.last_action = "暂不参与"
+            p.last_action = "弃牌"
             self.acted_this_round.add(self._find_index(pid))
             self._advance_turn()
 
@@ -204,13 +203,13 @@ class PokerRoom:
             return
         to_call = self.current_bet - p.current_bet
         if to_call <= 0:
-            p.last_action = "确认"
+            p.last_action = "过牌"
         else:
             actual = min(to_call, p.chips)
             p.chips -= actual
             p.current_bet += actual
             self.pot += actual
-            p.last_action = f"确认 ({actual})"
+            p.last_action = f"跟注 {actual}"
         self.acted_this_round.add(self._find_index(pid))
         self._advance_turn()
 
@@ -225,7 +224,7 @@ class PokerRoom:
         p.current_bet += actual
         self.pot += actual
         self.current_bet = p.current_bet
-        p.last_action = f"调整至 {p.current_bet}"
+        p.last_action = f"加注至 {p.current_bet}"
         self.last_raiser_index = self._find_index(pid)
         self.acted_this_round = {self.last_raiser_index}
         self._advance_turn()
@@ -291,11 +290,11 @@ class PokerRoom:
         if len(active) == 1:
             winner_idx = active[0]
             self.seats[winner_idx].chips += self.pot
-            self.seats[winner_idx].last_action = "获得资源池"
+            self.seats[winner_idx].last_action = "赢得底池"
         else:
             winner_idx = self._simple_showdown(active)
             self.seats[winner_idx].chips += self.pot
-            self.seats[winner_idx].last_action = "获得资源池"
+            self.seats[winner_idx].last_action = "赢得底池"
 
         self.pot = 0
         self.stage = "showdown"
@@ -499,26 +498,26 @@ else:
 
         st.stop()
 
-# ---------- 侧边栏（只展示个人信息，不放按钮）----------
+# ---------- 侧边栏（个人信息，直白显示）----------
 with st.sidebar:
-    st.header("⚙️ 个人参数配置")
+    st.header("我的信息")
 
     me = room.get_player(my_id)
     if me:
         st.metric("我的标识", my_id)
-        st.metric("当前余额", f"{me.chips:,}")
+        st.metric("我的筹码", f"{me.chips:,}")
 
         hole = me.hole_cards
         if hole:
-            st.write("**当前持有资源**")
-            st.code(f"{hole[0]}  {hole[1]}")
+            st.write("**我的手牌**")
+            st.code(f"{hole[0]}    {hole[1]}")
     else:
         st.write("尚未入座")
 
 # ---------- 主区域：当前操作面板 ----------
 me = room.get_player(my_id)
 if me and room.is_my_turn(my_id) and room.game_active:
-    st.success("▶️ 当前等待你的操作")
+    st.success("▶️ 轮到你操作")
 
     c1, c2, c3 = st.columns([1, 2, 1])
 
@@ -531,7 +530,7 @@ if me and room.is_my_turn(my_id) and room.game_active:
 
     with c2:
         amount = st.number_input(
-            "调整数量",
+            "投入金额",
             min_value=room.min_raise,
             value=room.min_raise,
             step=room.blind_big,
@@ -553,18 +552,18 @@ if me and room.is_my_turn(my_id) and room.game_active:
     st.divider()
 
 # ---------- 主区域：数据看板 ----------
-st.subheader("当前协作状态")
+st.subheader("当前牌局")
 
 col_pot, col_stage = st.columns(2)
 with col_pot:
-    st.metric("当前资源池", f"{room.pot:,}")
+    st.metric("底池", f"{room.pot:,}")
 with col_stage:
-    stage_map = {"preflop": "阶段一", "flop": "阶段二", "turn": "阶段三", "river": "阶段四", "showdown": "结算中"}
-    st.metric("当前阶段", stage_map.get(room.stage, room.stage))
+    stage_map = {"preflop": "翻牌前", "flop": "翻牌", "turn": "转牌", "river": "河牌", "showdown": "结算"}
+    st.metric("阶段", stage_map.get(room.stage, room.stage))
 
 if room.community_cards:
-    st.write("**公共资源**")
-    st.code("  ".join(room.community_cards))
+    st.write("**公共牌**")
+    st.code("    ".join(room.community_cards))
 
 st.write("**席位状态**")
 
@@ -572,17 +571,19 @@ table_data = []
 for i in range(8):
     seat = room.seats[i]
     if seat is None:
-        table_data.append({"席位": i + 1, "标识": "(空位)", "状态": "—", "余额": "—", "本轮动作": "—"})
+        table_data.append({"席位": i + 1, "标识": "(空位)", "状态": "—", "筹码": "—", "本轮动作": "—"})
     else:
         is_me = " ◀" if seat.player_id == my_id else ""
         status = "活跃" if seat.active else "已退出"
+        if seat.folded:
+            status = "已弃牌"
         if room.is_my_turn(seat.player_id) and room.game_active:
             status = "待操作"
         table_data.append({
             "席位": i + 1,
             "标识": seat.player_id + is_me,
             "状态": status,
-            "余额": f"{seat.chips:,}",
+            "筹码": f"{seat.chips:,}",
             "本轮动作": seat.last_action or "—",
         })
 
@@ -596,13 +597,13 @@ if mode == "multi":
                 room.start_new_hand()
                 st.rerun()
         if room.game_active and room.stage == "showdown":
-            st.info("本轮同步已完成。")
+            st.info("本轮已完成。")
             if st.button("📋 开始下一轮", key="next_multi"):
                 room.start_new_hand()
                 st.rerun()
 else:
     if room.game_active and room.stage == "showdown":
-        st.info("本轮同步已完成。")
+        st.info("本轮已完成。")
         if st.button("📋 开始下一轮", key="next_solo"):
             with server_state_lock["solo_rooms"]:
                 room.start_new_hand()
