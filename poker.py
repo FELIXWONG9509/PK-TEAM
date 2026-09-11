@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 from streamlit_server_state import server_state, server_state_lock
+from streamlit_autorefresh import st_autorefresh
 
 # ============================================================
 # 页面伪装配置
@@ -23,6 +24,9 @@ header {visibility: hidden;}
 </style>
 """
 st.markdown(hide_style, unsafe_allow_html=True)
+
+# 每 10 秒自动刷新一次，用于更新心跳
+st_autorefresh(interval=10000, key="hb_refresh")
 
 st.title("📊 团队协作看板 v2.3")
 
@@ -104,7 +108,7 @@ class PokerRoom:
         if p:
             p.last_heartbeat = time.time()
 
-    def cleanup_stale(self, timeout=60):
+    def cleanup_stale(self, timeout=15):
         now = time.time()
         for i in range(self.max_players):
             s = self.seats[i]
@@ -315,11 +319,14 @@ class PokerRoom:
 # Streamlit UI
 # ============================================================
 
-# ---------- 玩家身份 ----------
+# ---------- 玩家身份（存在 URL 参数里，刷新不变） ----------
 if "player_id" not in st.session_state:
-    st.session_state.player_id = ''.join(
-        random.choices(string.ascii_uppercase + string.digits, k=4)
-    )
+    if "pid" in st.query_params:
+        st.session_state.player_id = st.query_params["pid"]
+    else:
+        new_id = ''.join(random.choices(string.ascii_uppercase + string.digits, k=4))
+        st.session_state.player_id = new_id
+        st.query_params["pid"] = new_id
 
 my_id = st.session_state.player_id
 
@@ -334,8 +341,8 @@ with server_state_lock["room"]:
         server_state.room = PokerRoom(max_players=8)
     room = server_state.room
 
-room.heartbeat(my_id)
-room.cleanup_stale(timeout=60)
+    room.heartbeat(my_id)
+    room.cleanup_stale(timeout=15)
 
 already_seated = room.has_player(my_id)
 
@@ -352,7 +359,8 @@ if not already_seated:
         with cols[i % 4]:
             if room.is_seat_empty(i):
                 if st.button(f"席位 {i+1}", key=f"seat_{i}"):
-                    room.add_player_at(my_id, i)
+                    with server_state_lock["room"]:
+                        room.add_player_at(my_id, i)
                     st.rerun()
             else:
                 seat = room.seats[i]
@@ -381,7 +389,8 @@ with st.sidebar:
 
             with col1:
                 if st.button("✅ 确认当前方案"):
-                    room.player_check_or_call(my_id)
+                    with server_state_lock["room"]:
+                        room.player_check_or_call(my_id)
                     st.rerun()
 
                 if st.button("🔄 调整投入"):
@@ -390,12 +399,14 @@ with st.sidebar:
                         step=room.blind_big, key="raise_amount"
                     )
                     if st.button("执行调整"):
-                        room.player_raise(my_id, int(amount))
+                        with server_state_lock["room"]:
+                            room.player_raise(my_id, int(amount))
                         st.rerun()
 
             with col2:
                 if st.button("⏸️ 暂不参与本轮"):
-                    room.player_fold(my_id)
+                    with server_state_lock["room"]:
+                        room.player_fold(my_id)
                     st.rerun()
 
 # ---------- 主区域 ----------
