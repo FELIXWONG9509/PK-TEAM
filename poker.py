@@ -29,7 +29,7 @@ st.title("台账管理表")
 # ============================================================
 # 房间版本号（每次改代码把这个数字 +1，旧房间会自动重建）
 # ============================================================
-ROOM_VERSION = 7
+ROOM_VERSION = 9
 
 # ============================================================
 # 牌面显示转换（花色用黑色图形符号）
@@ -629,6 +629,18 @@ def process_ai_actions(room):
 
 
 # ============================================================
+# 通知所有会话：房间状态已变化（关键！）
+# ============================================================
+def notify_room_change(mode):
+    """重新赋值 server_state.room，触发所有会话 rerun。"""
+    if mode == "multi":
+        try:
+            server_state.room = server_state.room
+        except Exception:
+            pass
+
+
+# ============================================================
 # Streamlit UI
 # ============================================================
 
@@ -648,7 +660,8 @@ if "mode" not in st.session_state:
 mode = st.session_state.mode
 
 if mode == "multi":
-    st_autorefresh(interval=10000, key="hb_refresh")
+    # 兜底刷新：5 秒一次（正常情况靠 server_state 通知即时刷新）
+    st_autorefresh(interval=5000, key="hb_refresh")
 
 # ---------- 自习室（单人模式）----------
 if mode == "solo":
@@ -711,7 +724,6 @@ else:
             st.warning("当前会议频道已满，请稍后再试。")
             st.stop()
 
-        # ============ 情况 1：用户已经选了某个座位，等待输入名称 ============
         if st.session_state.get("pending_seat") is not None:
             pending_i = st.session_state.pending_seat
             st.info(f"你选择了 **会议频道{pending_i+1}**，请输入你的标识名称")
@@ -738,6 +750,7 @@ else:
                     else:
                         with server_state_lock["room"]:
                             room.add_player_at(name_clean, pending_i)
+                            server_state.room = room
                         st.session_state.player_id = name_clean
                         st.query_params["pid"] = name_clean
                         st.session_state.pending_seat = None
@@ -750,7 +763,6 @@ else:
 
             st.stop()
 
-        # ============ 情况 2：显示座位按钮 ============
         cols = st.columns(4)
         for i in range(8):
             with cols[i % 4]:
@@ -770,7 +782,6 @@ else:
 
         st.stop()
 
-    # ---------- 已入座 ----------
     st.session_state.pending_seat = None
 
     top_col_a, top_col_b = st.columns([4, 1])
@@ -783,6 +794,7 @@ else:
                 if me_leave and room.game_active and not me_leave.folded:
                     room.player_fold(my_id)
                 room.remove_player(my_id)
+                server_state.room = room
             st.rerun()
 
 # ---------- 兜底补发 ----------
@@ -814,6 +826,7 @@ if me and room.is_my_turn(my_id) and room.game_active:
             with lock:
                 room.player_check_or_call(my_id)
                 process_ai_actions(room)
+                notify_room_change(mode)
             st.rerun()
 
     with c2:
@@ -829,6 +842,7 @@ if me and room.is_my_turn(my_id) and room.game_active:
             with lock:
                 room.player_raise(my_id, int(amount))
                 process_ai_actions(room)
+                notify_room_change(mode)
             st.rerun()
 
     with c3:
@@ -837,6 +851,7 @@ if me and room.is_my_turn(my_id) and room.game_active:
             with lock:
                 room.player_fold(my_id)
                 process_ai_actions(room)
+                notify_room_change(mode)
             st.rerun()
 
     st.divider()
@@ -925,10 +940,12 @@ if mode == "multi":
         if not room.game_active and room.stage == "showdown":
             if st.button("开始下一轮", key="next_multi"):
                 room.start_new_hand()
+                server_state.room = room
                 st.rerun()
         elif not room.game_active and room.player_count() >= 2:
             if st.button("启动同步", key="start_multi"):
                 room.start_new_hand()
+                server_state.room = room
                 st.rerun()
 else:
     if not room.game_active and room.stage == "showdown":
