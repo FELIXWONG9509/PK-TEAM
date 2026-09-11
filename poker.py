@@ -325,7 +325,12 @@ my_id = st.session_state.player_id
 
 # ---------- 初始化/获取全局房间 ----------
 with server_state_lock["room"]:
+    need_new = False
     if "room" not in server_state:
+        need_new = True
+    elif not hasattr(server_state.room, "is_seat_empty"):
+        need_new = True
+    if need_new:
         server_state.room = PokerRoom(max_players=8)
     room = server_state.room
 
