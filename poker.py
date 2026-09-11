@@ -587,7 +587,6 @@ if mode == "solo":
     with server_state_lock["solo_rooms"]:
         if "solo_rooms" not in server_state:
             server_state.solo_rooms = {}
-        # 旧对象没有 last_result 属性 → 重建
         need_new_solo = False
         if my_id not in server_state.solo_rooms:
             need_new_solo = True
@@ -661,33 +660,6 @@ else:
 
         st.stop()
 
-# ---------- 侧边栏 ----------
-with st.sidebar:
-    st.header("我的信息")
-
-    me = room.get_player(my_id)
-    if me:
-        st.metric("我的标识", my_id)
-        st.metric("我的筹码", f"{me.chips:,}")
-
-        hole = me.hole_cards
-        if hole:
-            st.write("**我的手牌**")
-            st.code(cards_to_cn(hole))
-        else:
-            st.write("**我的手牌**")
-            st.caption("等待发牌…")
-    else:
-        st.write("尚未入座")
-
-    st.divider()
-
-    st.write("**公共牌**")
-    if room.community_cards:
-        st.code(cards_to_cn(room.community_cards))
-    else:
-        st.caption("等待发牌…")
-
 # ---------- 主区域：当前操作面板 ----------
 me = room.get_player(my_id)
 if me and room.is_my_turn(my_id) and room.game_active:
@@ -728,7 +700,7 @@ if me and room.is_my_turn(my_id) and room.game_active:
 
     st.divider()
 
-# ---------- 结算面板（用 getattr 安全读取）----------
+# ---------- 结算面板 ----------
 last_result = getattr(room, "last_result", None)
 if room.stage == "showdown" and last_result:
     result = last_result
@@ -801,3 +773,36 @@ else:
                 room.start_new_hand()
                 process_ai_actions(room)
             st.rerun()
+
+# ---------- 底部：个人信息与公共牌 ----------
+st.divider()
+
+me = room.get_player(my_id)
+st.subheader("我的信息")
+
+info_col1, info_col2, info_col3 = st.columns(3)
+
+with info_col1:
+    if me:
+        st.metric("我的标识", my_id)
+    else:
+        st.metric("我的标识", "未入座")
+
+with info_col2:
+    if me:
+        st.metric("我的筹码", f"{me.chips:,}")
+    else:
+        st.metric("我的筹码", "—")
+
+with info_col3:
+    st.write("**我的手牌**")
+    if me and me.hole_cards:
+        st.code(cards_to_cn(me.hole_cards))
+    else:
+        st.caption("等待发牌…")
+
+st.write("**公共牌**")
+if room.community_cards:
+    st.code(cards_to_cn(room.community_cards))
+else:
+    st.caption("等待发牌…")
