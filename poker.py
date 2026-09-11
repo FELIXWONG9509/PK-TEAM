@@ -17,11 +17,11 @@ st.set_page_config(
     layout="wide",
 )
 
+# 只隐藏菜单和页脚，保留顶部 header（侧边栏开关在里面）
 hide_style = """
 <style>
 #MainMenu {visibility: hidden;}
 footer {visibility: hidden;}
-header {visibility: hidden;}
 </style>
 """
 st.markdown(hide_style, unsafe_allow_html=True)
@@ -195,6 +195,7 @@ class PokerRoom:
         if p:
             p.folded = True
             p.last_action = "暂不参与"
+            self.acted_this_round.add(self._find_index(pid))
             self._advance_turn()
 
     def player_check_or_call(self, pid):
@@ -426,7 +427,6 @@ if "mode" not in st.session_state:
 
 mode = st.session_state.mode
 
-# 只有多人模式才启用自动刷新（心跳用）
 if mode == "multi":
     st_autorefresh(interval=10000, key="hb_refresh")
 
@@ -436,11 +436,11 @@ if mode == "solo":
         if "solo_rooms" not in server_state:
             server_state.solo_rooms = {}
         if my_id not in server_state.solo_rooms:
-            room = PokerRoom(max_players=8)
-            room.add_player_at(my_id, 0, is_ai=False)
+            new_room = PokerRoom(max_players=8)
+            new_room.add_player_at(my_id, 0, is_ai=False)
             for i, name in enumerate(AI_NAMES, start=1):
-                room.add_player_at(name, i, is_ai=True)
-            server_state.solo_rooms[my_id] = room
+                new_room.add_player_at(name, i, is_ai=True)
+            server_state.solo_rooms[my_id] = new_room
         room = server_state.solo_rooms[my_id]
 
         if not room.game_active and room.stage != "showdown":
@@ -499,7 +499,7 @@ else:
 
         st.stop()
 
-# ---------- 侧边栏 ----------
+# ---------- 侧边栏（只展示个人信息，不放按钮）----------
 with st.sidebar:
     st.header("⚙️ 个人参数配置")
 
@@ -512,39 +512,47 @@ with st.sidebar:
         if hole:
             st.write("**当前持有资源**")
             st.code(f"{hole[0]}  {hole[1]}")
+    else:
+        st.write("尚未入座")
 
-        if room.is_my_turn(my_id) and room.game_active:
-            st.write("**可执行操作**")
+# ---------- 主区域：当前操作面板 ----------
+me = room.get_player(my_id)
+if me and room.is_my_turn(my_id) and room.game_active:
+    st.success("▶️ 当前等待你的操作")
 
-            col1, col2 = st.columns(2)
+    c1, c2, c3 = st.columns([1, 2, 1])
 
-            with col1:
-                if st.button("✅ 确认当前方案", key="action_call"):
-                    room.player_check_or_call(my_id)
-                    process_ai_actions(room)
-                    st.rerun()
+    with c1:
+        if st.button("✅ 确认当前方案", key="main_call", use_container_width=True):
+            with server_state_lock["solo_rooms"] if mode == "solo" else server_state_lock["room"]:
+                room.player_check_or_call(my_id)
+                process_ai_actions(room)
+            st.rerun()
 
-                if st.button("🔄 调整投入", key="action_raise_open"):
-                    st.session_state.show_raise = True
+    with c2:
+        amount = st.number_input(
+            "调整数量",
+            min_value=room.min_raise,
+            value=room.min_raise,
+            step=room.blind_big,
+            key="raise_amount_main",
+        )
+        if st.button("🔄 执行调整", key="main_raise", use_container_width=True):
+            with server_state_lock["solo_rooms"] if mode == "solo" else server_state_lock["room"]:
+                room.player_raise(my_id, int(amount))
+                process_ai_actions(room)
+            st.rerun()
 
-                if st.session_state.get("show_raise"):
-                    amount = st.number_input(
-                        "调整数量", min_value=room.min_raise, value=room.min_raise,
-                        step=room.blind_big, key="raise_amount"
-                    )
-                    if st.button("执行调整", key="action_raise_confirm"):
-                        room.player_raise(my_id, int(amount))
-                        st.session_state.show_raise = False
-                        process_ai_actions(room)
-                        st.rerun()
+    with c3:
+        if st.button("⏸️ 暂不参与本轮", key="main_fold", use_container_width=True):
+            with server_state_lock["solo_rooms"] if mode == "solo" else server_state_lock["room"]:
+                room.player_fold(my_id)
+                process_ai_actions(room)
+            st.rerun()
 
-            with col2:
-                if st.button("⏸️ 暂不参与本轮", key="action_fold"):
-                    room.player_fold(my_id)
-                    process_ai_actions(room)
-                    st.rerun()
+    st.divider()
 
-# ---------- 主区域 ----------
+# ---------- 主区域：数据看板 ----------
 st.subheader("当前协作状态")
 
 col_pot, col_stage = st.columns(2)
@@ -580,7 +588,7 @@ for i in range(8):
 
 st.dataframe(table_data, use_container_width=True, hide_index=True)
 
-# 底部按钮
+# ---------- 底部按钮 ----------
 if mode == "multi":
     with server_state_lock["room"]:
         if not room.game_active and room.player_count() >= 2:
@@ -596,6 +604,7 @@ else:
     if room.game_active and room.stage == "showdown":
         st.info("本轮同步已完成。")
         if st.button("📋 开始下一轮", key="next_solo"):
-            room.start_new_hand()
-            process_ai_actions(room)
+            with server_state_lock["solo_rooms"]:
+                room.start_new_hand()
+                process_ai_actions(room)
             st.rerun()
