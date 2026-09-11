@@ -659,6 +659,19 @@ else:
 
         st.stop()
 
+    # ---------- 已入座：顶部加返回大厅按钮 ----------
+    top_col_a, top_col_b = st.columns([4, 1])
+    with top_col_a:
+        st.caption("多人协作模式")
+    with top_col_b:
+        if st.button("← 返回大厅", key="back_from_seat"):
+            with server_state_lock["room"]:
+                me_leave = room.get_player(my_id)
+                if me_leave and room.game_active and not me_leave.folded:
+                    room.player_fold(my_id)
+                room.remove_player(my_id)
+            st.rerun()
+
 # ---------- 主区域：当前操作面板 ----------
 me = room.get_player(my_id)
 if me and room.is_my_turn(my_id) and room.game_active:
