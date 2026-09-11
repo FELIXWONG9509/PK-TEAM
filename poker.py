@@ -29,7 +29,7 @@ st.title("台账管理表")
 # ============================================================
 # 房间版本号
 # ============================================================
-ROOM_VERSION = 10
+ROOM_VERSION = 11
 
 # ============================================================
 # 牌面显示转换
@@ -475,13 +475,11 @@ class PokerRoom:
         pot_amount = self.pot
 
         if len(active) == 1:
+            # 只有一人未弃牌（其他人都弃牌），不公开手牌
             winner_idx = active[0]
             winner_pid = self.seats[winner_idx].player_id
             self.seats[winner_idx].chips += pot_amount
             self.seats[winner_idx].last_action = "获得资源"
-
-            winner_hole = list(self.seats[winner_idx].hole_cards)
-            _, hand_name, best_5 = hand_score_and_name(winner_hole, self.community_cards)
 
             self.last_result = {
                 "winner_id": winner_pid,
@@ -490,10 +488,11 @@ class PokerRoom:
                 "showdown": [
                     {
                         "pid": winner_pid,
-                        "cards": winner_hole,
-                        "hand_name": hand_name,
-                        "best_5": best_5,
+                        "cards": [],          # 不公开
+                        "hand_name": "",      # 不公开
+                        "best_5": [],
                         "is_winner": True,
+                        "revealed": False,
                     }
                 ],
             }
@@ -510,6 +509,7 @@ class PokerRoom:
                     "hand_name": name,
                     "best_5": best_5,
                     "score": score,
+                    "revealed": True,
                 })
                 if score > best_score:
                     best_score = score
@@ -722,7 +722,6 @@ else:
             st.warning("当前会议频道已满，请稍后再试。")
             st.stop()
 
-        # ============ 待输入名称 ============
         if st.session_state.get("pending_seat") is not None:
             pending_i = st.session_state.pending_seat
             st.info(f"你选择了 **会议频道{pending_i+1}**，请输入你的标识名称")
@@ -747,7 +746,6 @@ else:
                         st.session_state.pending_seat = None
                         st.rerun()
                     else:
-                        # 关键修复：先改 session_state，再改 server_state
                         st.session_state.player_id = name_clean
                         st.session_state.pending_seat = None
 
@@ -764,7 +762,6 @@ else:
 
             st.stop()
 
-        # ============ 座位按钮 ============
         cols = st.columns(4)
         for i in range(8):
             with cols[i % 4]:
@@ -882,14 +879,22 @@ if room.stage == "showdown" and last_result:
     st.write("**公开情况**")
     for info in result["showdown"]:
         marker = "获得 " if info.get("is_winner") else "　 "
-        st.markdown(
-            f"{marker}**{info['pid']}**：{cards_to_html(info['cards'])} —— {info['hand_name']}",
-            unsafe_allow_html=True,
-        )
-        if info.get("best_5"):
+        if info.get("revealed"):
+            # 公开对局：显示手牌 + 牌型
             st.markdown(
-                f"　　<span style='color: gray;'>最佳组合：</span>"
-                f"{cards_to_html(info['best_5'])}",
+                f"{marker}**{info['pid']}**：{cards_to_html(info['cards'])} —— {info['hand_name']}",
+                unsafe_allow_html=True,
+            )
+            if info.get("best_5"):
+                st.markdown(
+                    f"　　<span style='color: gray;'>最佳组合：</span>"
+                    f"{cards_to_html(info['best_5'])}",
+                    unsafe_allow_html=True,
+                )
+        else:
+            # 其他人都弃牌：不公开
+            st.markdown(
+                f"{marker}**{info['pid']}**：未公开",
                 unsafe_allow_html=True,
             )
 
