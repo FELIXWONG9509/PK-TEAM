@@ -27,6 +27,11 @@ st.markdown(hide_style, unsafe_allow_html=True)
 st.title("台账管理表")
 
 # ============================================================
+# 房间版本号（每次改代码把这个数字 +1，旧房间会自动重建）
+# ============================================================
+ROOM_VERSION = 4
+
+# ============================================================
 # 牌面显示转换
 # ============================================================
 SUIT_CN = {"S": "黑桃", "H": "红心", "D": "方块", "C": "梅花"}
@@ -163,6 +168,7 @@ class Player:
 
 class PokerRoom:
     def __init__(self, max_players=8):
+        self.version = ROOM_VERSION
         self.max_players = max_players
         self.seats: list = [None] * max_players
         self.pot = 0
@@ -337,7 +343,7 @@ class PokerRoom:
         p.current_bet += actual
         self.pot += actual
         self.current_bet = p.current_bet
-        p.last_action = f"加注至 {p.current_bet}"
+        p.last_action = f"追加至 {p.current_bet}"
         self.last_raiser_index = self._find_index(pid)
         self.acted_this_round = {self.last_raiser_index}
         self._advance_turn()
@@ -589,7 +595,7 @@ if mode == "solo":
         need_new_solo = False
         if my_id not in server_state.solo_rooms:
             need_new_solo = True
-        elif not hasattr(server_state.solo_rooms[my_id], "last_result"):
+        elif getattr(server_state.solo_rooms[my_id], "version", 0) != ROOM_VERSION:
             need_new_solo = True
 
         if need_new_solo:
@@ -619,6 +625,8 @@ else:
     with server_state_lock["room"]:
         need_new = False
         if "room" not in server_state:
+            need_new = True
+        elif getattr(server_state.room, "version", 0) != ROOM_VERSION:
             need_new = True
         elif not hasattr(server_state.room, "is_seat_empty"):
             need_new = True
@@ -671,10 +679,18 @@ else:
                 room.remove_player(my_id)
             st.rerun()
 
+# ---------- 兜底补发：游戏进行中但手牌为空时，重新发牌 ==========
+me = room.get_player(my_id)
+if me and room.game_active and not me.folded and not me.hole_cards:
+    with server_state_lock["room"] if mode == "multi" else server_state_lock["solo_rooms"]:
+        me_fresh = room.get_player(my_id)
+        if me_fresh and not me_fresh.hole_cards and not me_fresh.folded and len(room.deck) >= 2:
+            me_fresh.hole_cards = [room.deck.pop(), room.deck.pop()]
+            me = me_fresh
+
 # ---------- 主区域：当前操作面板 ----------
 me = room.get_player(my_id)
 
-# 计算当前轮到谁操作
 current_pid = ""
 if room.current_turn_index >= 0 and room.current_turn_index < room.max_players:
     current_seat = room.seats[room.current_turn_index]
@@ -682,7 +698,6 @@ if room.current_turn_index >= 0 and room.current_turn_index < room.max_players:
         current_pid = current_seat.player_id
 
 if me and room.is_my_turn(my_id) and room.game_active:
-    # 轮到我
     st.success("轮到你操作")
 
     c1, c2, c3 = st.columns([1, 2, 1])
@@ -697,7 +712,7 @@ if me and room.is_my_turn(my_id) and room.game_active:
 
     with c2:
         amount = st.number_input(
-            "投入资源",
+            "追加资源",
             min_value=room.min_raise,
             value=room.min_raise,
             step=room.blind_big,
@@ -721,7 +736,6 @@ if me and room.is_my_turn(my_id) and room.game_active:
     st.divider()
 
 elif me and room.game_active and mode == "multi":
-    # 游戏进行中，但还没轮到我
     if current_pid:
         st.info(f"还没轮到你操作，当前等待 {current_pid} 操作")
     else:
