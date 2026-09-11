@@ -28,6 +28,28 @@ st.markdown(hide_style, unsafe_allow_html=True)
 st.title("台账管理表")
 
 # ============================================================
+# 牌面显示转换
+# ============================================================
+SUIT_CN = {"S": "黑桃", "H": "红心", "D": "方块", "C": "梅花"}
+RANK_CN = {"T": "10", "J": "J", "Q": "Q", "K": "K", "A": "A"}
+
+
+def card_to_cn(card):
+    """把 'A-S' 这种代码转成 '黑桃A'"""
+    if not card or "-" not in card:
+        return card
+    rank, suit = card.split("-")
+    rank_display = RANK_CN.get(rank, rank)
+    suit_display = SUIT_CN.get(suit, suit)
+    return f"{suit_display}{rank_display}"
+
+
+def cards_to_cn(cards):
+    """把多张牌转成中文，用空格分隔"""
+    return "  ".join(card_to_cn(c) for c in cards)
+
+
+# ============================================================
 # 扑克逻辑
 # ============================================================
 SUITS = ["S", "H", "D", "C"]
@@ -66,7 +88,6 @@ class PokerRoom:
         self.last_raiser_index = -1
         self.acted_this_round = set()
 
-    # ---------- 玩家管理 ----------
     def player_count(self):
         return sum(1 for s in self.seats if s is not None)
 
@@ -116,7 +137,6 @@ class PokerRoom:
             if (now - s.last_heartbeat) > timeout:
                 self.seats[i] = None
 
-    # ---------- 游戏流程 ----------
     def _build_deck(self):
         deck = [f"{r}-{s}" for r in RANKS for s in SUITS]
         random.shuffle(deck)
@@ -236,7 +256,6 @@ class PokerRoom:
         return -1
 
     def _advance_turn(self):
-        """推进到下一个需要行动的玩家；如果本轮结束，进入下一阶段"""
         active = self._active_indices()
         if len(active) <= 1:
             self._end_hand()
@@ -248,7 +267,6 @@ class PokerRoom:
 
         idx = self._next_active_index(self.current_turn_index)
         if idx < 0:
-            # 找不到活跃玩家，直接进入下一阶段
             self._next_stage()
             return
         self.current_turn_index = idx
@@ -302,7 +320,6 @@ class PokerRoom:
             winner_idx = self._simple_showdown(active)
             self.seats[winner_idx].chips += self.pot
             self.seats[winner_idx].last_action = "赢得底池"
-        # 如果 active 为空，底池没人拿（不应发生）
 
         self.pot = 0
         self.stage = "showdown"
@@ -401,33 +418,21 @@ def ai_take_action(room, ai_player):
 
 
 def process_ai_actions(room):
-    """让所有连续的 AI 玩家依次行动，直到轮到人类或本轮结束。
-    遇到不能行动的玩家（None/已弃牌）会强制推进，不会卡住。"""
     for _ in range(300):
         if not room.game_active:
             break
-
         idx = room.current_turn_index
         if idx < 0 or idx >= room.max_players:
             break
-
         seat = room.seats[idx]
-
-        # 座位为空 → 强制推进
         if seat is None:
             room._advance_turn()
             continue
-
-        # 已弃牌玩家 → 强制推进
         if seat.folded or not seat.active:
             room._advance_turn()
             continue
-
-        # 人类玩家 → 停下来等操作
         if not seat.is_ai:
             break
-
-        # AI 玩家 → 行动
         ai_take_action(room, seat)
 
 
@@ -435,7 +440,6 @@ def process_ai_actions(room):
 # Streamlit UI
 # ============================================================
 
-# ---------- 玩家身份 ----------
 if "player_id" not in st.session_state:
     if "pid" in st.query_params:
         st.session_state.player_id = st.query_params["pid"]
@@ -446,7 +450,6 @@ if "player_id" not in st.session_state:
 
 my_id = st.session_state.player_id
 
-# ---------- 模式 ----------
 if "mode" not in st.session_state:
     st.session_state.mode = "multi"
 
@@ -536,9 +539,20 @@ with st.sidebar:
         hole = me.hole_cards
         if hole:
             st.write("**我的手牌**")
-            st.code(f"{hole[0]}    {hole[1]}")
+            st.code(cards_to_cn(hole))
+        else:
+            st.write("**我的手牌**")
+            st.caption("等待发牌…")
     else:
         st.write("尚未入座")
+
+    st.divider()
+
+    st.write("**公共牌**")
+    if room.community_cards:
+        st.code(cards_to_cn(room.community_cards))
+    else:
+        st.caption("等待发牌…")
 
 # ---------- 主区域：当前操作面板 ----------
 me = room.get_player(my_id)
@@ -589,10 +603,6 @@ with col_pot:
 with col_stage:
     stage_map = {"preflop": "翻牌前", "flop": "翻牌", "turn": "转牌", "river": "河牌", "showdown": "结算"}
     st.metric("阶段", stage_map.get(room.stage, room.stage))
-
-if room.community_cards:
-    st.write("**公共牌**")
-    st.code("    ".join(room.community_cards))
 
 st.write("**席位状态**")
 
