@@ -27,12 +27,12 @@ st.markdown(hide_style, unsafe_allow_html=True)
 st.title("台账管理表")
 
 # ============================================================
-# 房间版本号（每次改代码把这个数字 +1，旧房间会自动重建）
+# 房间版本号
 # ============================================================
-ROOM_VERSION = 9
+ROOM_VERSION = 10
 
 # ============================================================
-# 牌面显示转换（花色用黑色图形符号）
+# 牌面显示转换
 # ============================================================
 SUIT_SYMBOL = {"S": "♠", "H": "♥", "D": "♦", "C": "♣"}
 RANK_CN = {"T": "10", "J": "J", "Q": "Q", "K": "K", "A": "A"}
@@ -69,7 +69,7 @@ def cards_to_cn(cards):
 
 
 # ============================================================
-# 牌型判断（返回 分数、牌型名称、最佳5张牌）
+# 牌型判断
 # ============================================================
 RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
 SUITS = ["S", "H", "D", "C"]
@@ -629,10 +629,9 @@ def process_ai_actions(room):
 
 
 # ============================================================
-# 通知所有会话：房间状态已变化（关键！）
+# 通知所有会话
 # ============================================================
 def notify_room_change(mode):
-    """重新赋值 server_state.room，触发所有会话 rerun。"""
     if mode == "multi":
         try:
             server_state.room = server_state.room
@@ -660,10 +659,9 @@ if "mode" not in st.session_state:
 mode = st.session_state.mode
 
 if mode == "multi":
-    # 兜底刷新：5 秒一次（正常情况靠 server_state 通知即时刷新）
     st_autorefresh(interval=5000, key="hb_refresh")
 
-# ---------- 自习室（单人模式）----------
+# ---------- 自习室 ----------
 if mode == "solo":
     with server_state_lock["solo_rooms"]:
         if "solo_rooms" not in server_state:
@@ -724,6 +722,7 @@ else:
             st.warning("当前会议频道已满，请稍后再试。")
             st.stop()
 
+        # ============ 待输入名称 ============
         if st.session_state.get("pending_seat") is not None:
             pending_i = st.session_state.pending_seat
             st.info(f"你选择了 **会议频道{pending_i+1}**，请输入你的标识名称")
@@ -748,12 +747,14 @@ else:
                         st.session_state.pending_seat = None
                         st.rerun()
                     else:
+                        # 关键修复：先改 session_state，再改 server_state
+                        st.session_state.player_id = name_clean
+                        st.session_state.pending_seat = None
+
                         with server_state_lock["room"]:
                             room.add_player_at(name_clean, pending_i)
                             server_state.room = room
-                        st.session_state.player_id = name_clean
-                        st.query_params["pid"] = name_clean
-                        st.session_state.pending_seat = None
+
                         st.rerun()
 
             with c2:
@@ -763,6 +764,7 @@ else:
 
             st.stop()
 
+        # ============ 座位按钮 ============
         cols = st.columns(4)
         for i in range(8):
             with cols[i % 4]:
@@ -806,7 +808,7 @@ if me and room.game_active and not me.folded and not me.hole_cards:
             me_fresh.hole_cards = [room.deck.pop(), room.deck.pop()]
             me = me_fresh
 
-# ---------- 主区域：当前操作面板 ----------
+# ---------- 操作面板 ----------
 me = room.get_player(my_id)
 
 current_pid = ""
@@ -893,7 +895,7 @@ if room.stage == "showdown" and last_result:
 
     st.divider()
 
-# ---------- 主区域：席位状态 ----------
+# ---------- 席位状态 ----------
 st.subheader("当前情况")
 st.write("**席位状态**")
 
@@ -955,7 +957,7 @@ else:
                 process_ai_actions(room)
             st.rerun()
 
-# ---------- 底部：我的信息 + 公共 + 资源池/阶段 ----------
+# ---------- 我的信息 ----------
 st.divider()
 
 me = room.get_player(my_id)
@@ -988,7 +990,7 @@ if room.community_cards:
 else:
     st.caption("等待发牌…")
 
-# ---------- 最底部：资源池和阶段 ----------
+# ---------- 资源池和阶段 ----------
 stage_map = {"preflop": "翻牌前", "flop": "翻牌", "turn": "转牌", "river": "河牌", "showdown": "结算"}
 
 st.divider()
