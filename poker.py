@@ -412,7 +412,7 @@ class PokerRoom:
             winner_idx = active[0]
             winner_pid = self.seats[winner_idx].player_id
             self.seats[winner_idx].chips += pot_amount
-            self.seats[winner_idx].last_action = "赢得底池"
+            self.seats[winner_idx].last_action = "获得资源"
 
             winner_hole = list(self.seats[winner_idx].hole_cards)
             _, hand_name = hand_score_and_name(winner_hole, self.community_cards)
@@ -449,7 +449,7 @@ class PokerRoom:
 
             winner_pid = self.seats[best_idx].player_id
             self.seats[best_idx].chips += pot_amount
-            self.seats[best_idx].last_action = "赢得底池"
+            self.seats[best_idx].last_action = "获得资源"
 
             for info in showdown_info:
                 info["is_winner"] = (info["pid"] == winner_pid)
@@ -677,7 +677,7 @@ if me and room.is_my_turn(my_id) and room.game_active:
 
     with c2:
         amount = st.number_input(
-            "投入金额",
+            "投入资源",
             min_value=room.min_raise,
             value=room.min_raise,
             step=room.blind_big,
@@ -706,7 +706,7 @@ if room.stage == "showdown" and last_result:
     result = last_result
     st.subheader("本轮结算")
     st.success(
-        f"🏆 **{result['winner_id']}** 赢得底池 **{result['amount']:,}**（{result['reason']}）"
+        f"🏆 **{result['winner_id']}** 获得资源池 **{result['amount']:,}**（{result['reason']}）"
     )
 
     st.write("**开牌情况**")
@@ -735,7 +735,7 @@ for i in range(8):
             "标识": "(空位)",
             "角色": dealer_mark if is_dealer else "—",
             "状态": "—",
-            "筹码": "—",
+            "资源": "—",
             "本轮动作": "—",
         })
     else:
@@ -753,7 +753,7 @@ for i in range(8):
             "标识": seat.player_id + is_me,
             "角色": dealer_mark,
             "状态": status,
-            "筹码": f"{seat.chips:,}",
+            "资源": f"{seat.chips:,}",
             "本轮动作": seat.last_action or "—",
         })
 
@@ -778,7 +778,7 @@ else:
                 process_ai_actions(room)
             st.rerun()
 
-# ---------- 底部：我的信息 + 公共牌 + 底池/阶段 ----------
+# ---------- 底部：我的信息 + 公共牌 + 资源池/阶段 ----------
 st.divider()
 
 me = room.get_player(my_id)
@@ -794,9 +794,9 @@ with info_col1:
 
 with info_col2:
     if me:
-        st.metric("我的筹码", f"{me.chips:,}")
+        st.metric("我的资源", f"{me.chips:,}")
     else:
-        st.metric("我的筹码", "—")
+        st.metric("我的资源", "—")
 
 with info_col3:
     st.write("**我的手牌**")
@@ -811,7 +811,7 @@ if room.community_cards:
 else:
     st.caption("等待发牌…")
 
-# ---------- 最底部：底池和阶段 ----------
+# ---------- 最底部：资源池和阶段 ----------
 stage_map = {"preflop": "翻牌前", "flop": "翻牌", "turn": "转牌", "river": "河牌", "showdown": "结算"}
 
 st.divider()
@@ -819,7 +819,7 @@ st.divider()
 bot_col1, bot_col2 = st.columns(2)
 with bot_col1:
     st.markdown(
-        f"<span style='font-size:14pt;'><b>底池：</b>{room.pot:,}</span>",
+        f"<span style='font-size:14pt;'><b>资源池：</b>{room.pot:,}</span>",
         unsafe_allow_html=True,
     )
 with bot_col2:
