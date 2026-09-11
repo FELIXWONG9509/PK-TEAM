@@ -419,7 +419,7 @@ class PokerRoom:
             self.last_result = {
                 "winner_id": winner_pid,
                 "amount": pot_amount,
-                "reason": "其他玩家均已弃牌",
+                "reason": "",
                 "showdown": [
                     {
                         "pid": winner_pid,
@@ -456,7 +456,7 @@ class PokerRoom:
             self.last_result = {
                 "winner_id": winner_pid,
                 "amount": pot_amount,
-                "reason": "开牌对决",
+                "reason": "",
                 "showdown": showdown_info,
             }
 
@@ -581,7 +581,7 @@ mode = st.session_state.mode
 if mode == "multi":
     st_autorefresh(interval=10000, key="hb_refresh")
 
-# ---------- 单人模式（自习室）----------
+# ---------- 自习室（单人模式）----------
 if mode == "solo":
     with server_state_lock["solo_rooms"]:
         if "solo_rooms" not in server_state:
@@ -659,7 +659,6 @@ else:
 
         st.stop()
 
-    # ---------- 已入座：顶部加返回大厅按钮 ----------
     top_col_a, top_col_b = st.columns([4, 1])
     with top_col_a:
         st.caption("多人协作模式")
@@ -717,13 +716,19 @@ last_result = getattr(room, "last_result", None)
 if room.stage == "showdown" and last_result:
     result = last_result
     st.subheader("本轮结算")
-    st.success(
-        f"**{result['winner_id']}** 获得资源池 **{result['amount']:,}**（{result['reason']}）"
-    )
 
-    st.write("**开牌情况**")
+    if result.get("reason"):
+        st.success(
+            f"**{result['winner_id']}** 获得资源池 **{result['amount']:,}**（{result['reason']}）"
+        )
+    else:
+        st.success(
+            f"**{result['winner_id']}** 获得资源池 **{result['amount']:,}**"
+        )
+
+    st.write("**公开情况**")
     for info in result["showdown"]:
-        marker = "赢 " if info.get("is_winner") else "　 "
+        marker = "获得 " if info.get("is_winner") else "　 "
         st.write(
             f"{marker}**{info['pid']}**：{cards_to_cn(info['cards'])} —— {info['hand_name']}"
         )
