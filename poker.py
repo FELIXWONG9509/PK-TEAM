@@ -35,7 +35,6 @@ RANK_CN = {"T": "10", "J": "J", "Q": "Q", "K": "K", "A": "A"}
 
 
 def card_to_cn(card):
-    """把 'A-S' 这种代码转成 '黑桃A'"""
     if not card or "-" not in card:
         return card
     rank, suit = card.split("-")
@@ -45,7 +44,6 @@ def card_to_cn(card):
 
 
 def cards_to_cn(cards):
-    """把多张牌转成中文，用空格分隔"""
     return "  ".join(card_to_cn(c) for c in cards)
 
 
@@ -471,6 +469,7 @@ if mode == "solo":
             server_state.solo_rooms[my_id] = new_room
         room = server_state.solo_rooms[my_id]
 
+        # 首次进入或上一轮未开始时自动开局
         if not room.game_active and room.stage != "showdown":
             room.start_new_hand()
 
@@ -631,20 +630,21 @@ for i in range(8):
 
 st.dataframe(table_data, use_container_width=True, hide_index=True)
 
-# ---------- 底部按钮 ----------
+# ---------- 底部按钮（修复了条件判断）----------
 if mode == "multi":
     with server_state_lock["room"]:
-        if not room.game_active and room.player_count() >= 2:
-            if st.button("🚀 启动同步", key="start_multi"):
-                room.start_new_hand()
-                st.rerun()
-        if room.game_active and room.stage == "showdown":
+        if not room.game_active and room.stage == "showdown":
             st.info("本轮已完成。")
             if st.button("📋 开始下一轮", key="next_multi"):
                 room.start_new_hand()
                 st.rerun()
+        elif not room.game_active and room.player_count() >= 2:
+            if st.button("🚀 启动同步", key="start_multi"):
+                room.start_new_hand()
+                st.rerun()
 else:
-    if room.game_active and room.stage == "showdown":
+    # 单人模式：结算后显示"开始下一轮"按钮
+    if not room.game_active and room.stage == "showdown":
         st.info("本轮已完成。")
         if st.button("📋 开始下一轮", key="next_solo"):
             with server_state_lock["solo_rooms"]:
