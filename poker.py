@@ -38,9 +38,7 @@ def card_to_cn(card):
     if not card or "-" not in card:
         return card
     rank, suit = card.split("-")
-    rank_display = RANK_CN.get(rank, rank)
-    suit_display = SUIT_CN.get(suit, suit)
-    return f"{suit_display}{rank_display}"
+    return f"{SUIT_CN.get(suit, suit)}{RANK_CN.get(rank, rank)}"
 
 
 def cards_to_cn(cards):
@@ -48,10 +46,116 @@ def cards_to_cn(cards):
 
 
 # ============================================================
+# 牌型判断
+# ============================================================
+RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
+SUITS = ["S", "H", "D", "C"]
+
+
+def hand_score_and_name(hole, community):
+    """返回 (分数, 牌型名称)，分数越大越好"""
+    all_cards = hole + community
+    if len(all_cards) < 5:
+        return (0, "未成牌")
+
+    rank_order = {r: i for i, r in enumerate(RANKS)}
+
+    def rank_of(c):
+        return rank_order.get(c.split("-")[0], 0)
+
+    def suit_of(c):
+        return c.split("-")[1]
+
+    ranks = [rank_of(c) for c in all_cards]
+    suits = [suit_of(c) for c in all_cards]
+
+    rank_counts = Counter(ranks)
+    suit_counts = Counter(suits)
+    counts = sorted(rank_counts.values(), reverse=True)
+    sorted_by_count = sorted(rank_counts.items(), key=lambda x: (x[1], x[0]), reverse=True)
+
+    flush_suit = None
+    for s, cnt in suit_counts.items():
+        if cnt >= 5:
+            flush_suit = s
+            break
+
+    def straight_high(rank_list):
+        unique = sorted(set(rank_list), reverse=True)
+        if len(unique) < 5:
+            return None
+        for i in range(len(unique) - 4):
+            if unique[i] - unique[i + 4] == 4:
+                return unique[i]
+        if {12, 0, 1, 2, 3}.issubset(set(unique)):
+            return 3
+        return None
+
+    def make_score(cat, primary, kickers):
+        score = cat * 10**12 + primary * 10**10
+        for i, k in enumerate(kickers[:5]):
+            score += k * 10**(8 - 2 * i)
+        return score
+
+    # 同花顺
+    if flush_suit:
+        flush_ranks = [rank_of(c) for c in all_cards if suit_of(c) == flush_suit]
+        high = straight_high(flush_ranks)
+        if high is not None:
+            if high == 12:
+                return (make_score(9, high, []), "皇家同花顺")
+            return (make_score(8, high, []), "同花顺")
+
+    # 四条
+    if counts[0] == 4:
+        quad = sorted_by_count[0][0]
+        kickers = sorted([r for r in ranks if r != quad], reverse=True)[:1]
+        return (make_score(7, quad, kickers), "四条")
+
+    # 葫芦
+    if counts[0] == 3 and len(counts) >= 2 and counts[1] >= 2:
+        trip = sorted_by_count[0][0]
+        pair = sorted_by_count[1][0]
+        return (make_score(6, trip, [pair]), "葫芦")
+
+    # 同花
+    if flush_suit:
+        flush_ranks = sorted(
+            [rank_of(c) for c in all_cards if suit_of(c) == flush_suit], reverse=True
+        )[:5]
+        return (make_score(5, flush_ranks[0], flush_ranks[1:]), "同花")
+
+    # 顺子
+    high = straight_high(ranks)
+    if high is not None:
+        return (make_score(4, high, []), "顺子")
+
+    # 三条
+    if counts[0] == 3:
+        trip = sorted_by_count[0][0]
+        kickers = sorted([r for r in ranks if r != trip], reverse=True)[:2]
+        return (make_score(3, trip, kickers), "三条")
+
+    # 两对
+    if counts[0] == 2 and len(counts) >= 2 and counts[1] == 2:
+        pairs = sorted([r for r, c in rank_counts.items() if c >= 2], reverse=True)[:2]
+        kicker = max([r for r in ranks if r not in pairs], default=0)
+        return (make_score(2, pairs[0], [pairs[1], kicker]), "两对")
+
+    # 一对
+    if counts[0] == 2:
+        pair = sorted_by_count[0][0]
+        kickers = sorted([r for r in ranks if r != pair], reverse=True)[:3]
+        return (make_score(1, pair, kickers), "一对")
+
+    # 高牌
+    top5 = sorted(ranks, reverse=True)[:5]
+    return (make_score(0, top5[0], top5[1:]), "高牌")
+
+
+# ============================================================
 # 扑克逻辑
 # ============================================================
-SUITS = ["S", "H", "D", "C"]
-RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
 AI_NAMES = ["A001", "A002", "A003", "A004", "A005"]
 
 
@@ -85,6 +189,7 @@ class PokerRoom:
         self.current_bet = 0
         self.last_raiser_index = -1
         self.acted_this_round = set()
+        self.last_result = None
 
     def player_count(self):
         return sum(1 for s in self.seats if s is not None)
@@ -166,6 +271,7 @@ class PokerRoom:
         self.acted_this_round = set()
         self.current_bet = 0
         self.last_raiser_index = -1
+        self.last_result = None
 
         active_indices = self._active_indices()
         if len(active_indices) < 2:
@@ -310,35 +416,67 @@ class PokerRoom:
 
     def _end_hand(self):
         active = self._active_indices()
+        pot_amount = self.pot
+
         if len(active) == 1:
+            # 其他人都弃牌，只剩一个人
             winner_idx = active[0]
-            self.seats[winner_idx].chips += self.pot
+            winner_pid = self.seats[winner_idx].player_id
+            self.seats[winner_idx].chips += pot_amount
             self.seats[winner_idx].last_action = "赢得底池"
+
+            winner_hole = list(self.seats[winner_idx].hole_cards)
+            _, hand_name = hand_score_and_name(winner_hole, self.community_cards)
+
+            self.last_result = {
+                "winner_id": winner_pid,
+                "amount": pot_amount,
+                "reason": "其他玩家均已弃牌",
+                "showdown": [
+                    {
+                        "pid": winner_pid,
+                        "cards": winner_hole,
+                        "hand_name": hand_name,
+                        "is_winner": True,
+                    }
+                ],
+            }
         elif len(active) > 1:
-            winner_idx = self._simple_showdown(active)
-            self.seats[winner_idx].chips += self.pot
-            self.seats[winner_idx].last_action = "赢得底池"
+            # 开牌对决
+            showdown_info = []
+            best_idx = active[0]
+            best_score = -1
+            for i in active:
+                hole = list(self.seats[i].hole_cards)
+                score, name = hand_score_and_name(hole, self.community_cards)
+                showdown_info.append({
+                    "pid": self.seats[i].player_id,
+                    "cards": hole,
+                    "hand_name": name,
+                    "score": score,
+                })
+                if score > best_score:
+                    best_score = score
+                    best_idx = i
+
+            winner_pid = self.seats[best_idx].player_id
+            self.seats[best_idx].chips += pot_amount
+            self.seats[best_idx].last_action = "赢得底池"
+
+            for info in showdown_info:
+                info["is_winner"] = (info["pid"] == winner_pid)
+
+            self.last_result = {
+                "winner_id": winner_pid,
+                "amount": pot_amount,
+                "reason": "开牌对决",
+                "showdown": showdown_info,
+            }
 
         self.pot = 0
         self.stage = "showdown"
         self.game_active = False
         self.current_turn_index = -1
-
-    def _simple_showdown(self, active_indices):
-        best_idx = active_indices[0]
-        best_score = -1
-        for i in active_indices:
-            score = self._hand_score(self.seats[i].hole_cards)
-            if score > best_score:
-                best_score = score
-                best_idx = i
-        return best_idx
-
-    def _hand_score(self, hole):
-        all_cards = hole + self.community_cards
-        rank_order = {r: i for i, r in enumerate(RANKS)}
-        max_rank = max((rank_order.get(c.split("-")[0], 0) for c in all_cards), default=0)
-        return max_rank
 
 
 # ============================================================
@@ -469,7 +607,6 @@ if mode == "solo":
             server_state.solo_rooms[my_id] = new_room
         room = server_state.solo_rooms[my_id]
 
-        # 首次进入或上一轮未开始时自动开局
         if not room.game_active and room.stage != "showdown":
             room.start_new_hand()
 
@@ -593,6 +730,23 @@ if me and room.is_my_turn(my_id) and room.game_active:
 
     st.divider()
 
+# ---------- 结算面板 ----------
+if room.stage == "showdown" and room.last_result:
+    result = room.last_result
+    st.subheader("本轮结算")
+    st.success(
+        f"🏆 **{result['winner_id']}** 赢得底池 **{result['amount']:,}**（{result['reason']}）"
+    )
+
+    st.write("**开牌情况**")
+    for info in result["showdown"]:
+        marker = "🏆 " if info.get("is_winner") else "　 "
+        st.write(
+            f"{marker}**{info['pid']}**：{cards_to_cn(info['cards'])} —— {info['hand_name']}"
+        )
+
+    st.divider()
+
 # ---------- 主区域：数据看板 ----------
 st.subheader("当前牌局")
 
@@ -630,11 +784,10 @@ for i in range(8):
 
 st.dataframe(table_data, use_container_width=True, hide_index=True)
 
-# ---------- 底部按钮（修复了条件判断）----------
+# ---------- 底部按钮 ----------
 if mode == "multi":
     with server_state_lock["room"]:
         if not room.game_active and room.stage == "showdown":
-            st.info("本轮已完成。")
             if st.button("📋 开始下一轮", key="next_multi"):
                 room.start_new_hand()
                 st.rerun()
@@ -643,9 +796,7 @@ if mode == "multi":
                 room.start_new_hand()
                 st.rerun()
 else:
-    # 单人模式：结算后显示"开始下一轮"按钮
     if not room.game_active and room.stage == "showdown":
-        st.info("本轮已完成。")
         if st.button("📋 开始下一轮", key="next_solo"):
             with server_state_lock["solo_rooms"]:
                 room.start_new_hand()
