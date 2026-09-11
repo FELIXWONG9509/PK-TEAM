@@ -673,7 +673,16 @@ else:
 
 # ---------- 主区域：当前操作面板 ----------
 me = room.get_player(my_id)
+
+# 计算当前轮到谁操作
+current_pid = ""
+if room.current_turn_index >= 0 and room.current_turn_index < room.max_players:
+    current_seat = room.seats[room.current_turn_index]
+    if current_seat is not None:
+        current_pid = current_seat.player_id
+
 if me and room.is_my_turn(my_id) and room.game_active:
+    # 轮到我
     st.success("轮到你操作")
 
     c1, c2, c3 = st.columns([1, 2, 1])
@@ -710,6 +719,13 @@ if me and room.is_my_turn(my_id) and room.game_active:
             st.rerun()
 
     st.divider()
+
+elif me and room.game_active and mode == "multi":
+    # 游戏进行中，但还没轮到我
+    if current_pid:
+        st.info(f"还没轮到你操作，当前等待 {current_pid} 操作")
+    else:
+        st.info("还没轮到你操作，请稍候")
 
 # ---------- 结算面板 ----------
 last_result = getattr(room, "last_result", None)
