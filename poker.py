@@ -236,6 +236,7 @@ class PokerRoom:
         return -1
 
     def _advance_turn(self):
+        """推进到下一个需要行动的玩家；如果本轮结束，进入下一阶段"""
         active = self._active_indices()
         if len(active) <= 1:
             self._end_hand()
@@ -246,6 +247,10 @@ class PokerRoom:
             return
 
         idx = self._next_active_index(self.current_turn_index)
+        if idx < 0:
+            # 找不到活跃玩家，直接进入下一阶段
+            self._next_stage()
+            return
         self.current_turn_index = idx
 
     def _betting_round_complete(self):
@@ -284,6 +289,8 @@ class PokerRoom:
             return
 
         self.current_turn_index = self._next_active_index(self.dealer_index)
+        if self.current_turn_index < 0:
+            self._end_hand()
 
     def _end_hand(self):
         active = self._active_indices()
@@ -291,10 +298,11 @@ class PokerRoom:
             winner_idx = active[0]
             self.seats[winner_idx].chips += self.pot
             self.seats[winner_idx].last_action = "赢得底池"
-        else:
+        elif len(active) > 1:
             winner_idx = self._simple_showdown(active)
             self.seats[winner_idx].chips += self.pot
             self.seats[winner_idx].last_action = "赢得底池"
+        # 如果 active 为空，底池没人拿（不应发生）
 
         self.pot = 0
         self.stage = "showdown"
@@ -393,15 +401,33 @@ def ai_take_action(room, ai_player):
 
 
 def process_ai_actions(room):
-    for _ in range(100):
+    """让所有连续的 AI 玩家依次行动，直到轮到人类或本轮结束。
+    遇到不能行动的玩家（None/已弃牌）会强制推进，不会卡住。"""
+    for _ in range(300):
         if not room.game_active:
             break
+
         idx = room.current_turn_index
         if idx < 0 or idx >= room.max_players:
             break
+
         seat = room.seats[idx]
-        if seat is None or not seat.is_ai:
+
+        # 座位为空 → 强制推进
+        if seat is None:
+            room._advance_turn()
+            continue
+
+        # 已弃牌玩家 → 强制推进
+        if seat.folded or not seat.active:
+            room._advance_turn()
+            continue
+
+        # 人类玩家 → 停下来等操作
+        if not seat.is_ai:
             break
+
+        # AI 玩家 → 行动
         ai_take_action(room, seat)
 
 
@@ -498,7 +524,7 @@ else:
 
         st.stop()
 
-# ---------- 侧边栏（个人信息，直白显示）----------
+# ---------- 侧边栏 ----------
 with st.sidebar:
     st.header("我的信息")
 
@@ -523,7 +549,8 @@ if me and room.is_my_turn(my_id) and room.game_active:
 
     with c1:
         if st.button("✅ 确认当前方案", key="main_call", use_container_width=True):
-            with server_state_lock["solo_rooms"] if mode == "solo" else server_state_lock["room"]:
+            lock = server_state_lock["solo_rooms"] if mode == "solo" else server_state_lock["room"]
+            with lock:
                 room.player_check_or_call(my_id)
                 process_ai_actions(room)
             st.rerun()
@@ -537,14 +564,16 @@ if me and room.is_my_turn(my_id) and room.game_active:
             key="raise_amount_main",
         )
         if st.button("🔄 执行调整", key="main_raise", use_container_width=True):
-            with server_state_lock["solo_rooms"] if mode == "solo" else server_state_lock["room"]:
+            lock = server_state_lock["solo_rooms"] if mode == "solo" else server_state_lock["room"]
+            with lock:
                 room.player_raise(my_id, int(amount))
                 process_ai_actions(room)
             st.rerun()
 
     with c3:
         if st.button("⏸️ 暂不参与本轮", key="main_fold", use_container_width=True):
-            with server_state_lock["solo_rooms"] if mode == "solo" else server_state_lock["room"]:
+            lock = server_state_lock["solo_rooms"] if mode == "solo" else server_state_lock["room"]
+            with lock:
                 room.player_fold(my_id)
                 process_ai_actions(room)
             st.rerun()
@@ -574,11 +603,14 @@ for i in range(8):
         table_data.append({"席位": i + 1, "标识": "(空位)", "状态": "—", "筹码": "—", "本轮动作": "—"})
     else:
         is_me = " ◀" if seat.player_id == my_id else ""
-        status = "活跃" if seat.active else "已退出"
         if seat.folded:
             status = "已弃牌"
-        if room.is_my_turn(seat.player_id) and room.game_active:
+        elif not seat.active:
+            status = "已退出"
+        elif room.is_my_turn(seat.player_id) and room.game_active:
             status = "待操作"
+        else:
+            status = "活跃"
         table_data.append({
             "席位": i + 1,
             "标识": seat.player_id + is_me,
