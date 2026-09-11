@@ -29,7 +29,7 @@ st.title("台账管理表")
 # ============================================================
 # 房间版本号（每次改代码把这个数字 +1，旧房间会自动重建）
 # ============================================================
-ROOM_VERSION = 4
+ROOM_VERSION = 5
 
 # ============================================================
 # 牌面显示转换
@@ -50,7 +50,7 @@ def cards_to_cn(cards):
 
 
 # ============================================================
-# 牌型判断
+# 牌型判断（返回 分数、牌型名称、最佳5张牌）
 # ============================================================
 RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "T", "J", "Q", "K", "A"]
 SUITS = ["S", "H", "D", "C"]
@@ -59,7 +59,7 @@ SUITS = ["S", "H", "D", "C"]
 def hand_score_and_name(hole, community):
     all_cards = hole + community
     if len(all_cards) < 5:
-        return (0, "未成牌")
+        return (0, "未成牌", [])
 
     rank_order = {r: i for i, r in enumerate(RANKS)}
 
@@ -68,6 +68,11 @@ def hand_score_and_name(hole, community):
 
     def suit_of(c):
         return c.split("-")[1]
+
+    cards_by_rank = {}
+    for c in all_cards:
+        r = rank_of(c)
+        cards_by_rank.setdefault(r, []).append(c)
 
     ranks = [rank_of(c) for c in all_cards]
     suits = [suit_of(c) for c in all_cards]
@@ -83,15 +88,15 @@ def hand_score_and_name(hole, community):
             flush_suit = s
             break
 
-    def straight_high(rank_list):
+    def find_straight(rank_list):
         unique = sorted(set(rank_list), reverse=True)
         if len(unique) < 5:
             return None
         for i in range(len(unique) - 4):
             if unique[i] - unique[i + 4] == 4:
-                return unique[i]
+                return unique[i:i + 5]
         if {12, 0, 1, 2, 3}.issubset(set(unique)):
-            return 3
+            return [3, 2, 1, 0, 12]
         return None
 
     def make_score(cat, primary, kickers):
@@ -100,51 +105,97 @@ def hand_score_and_name(hole, community):
             score += k * 10**(8 - 2 * i)
         return score
 
+    # 同花顺 / 皇家同花顺
     if flush_suit:
         flush_ranks = [rank_of(c) for c in all_cards if suit_of(c) == flush_suit]
-        high = straight_high(flush_ranks)
-        if high is not None:
+        straight = find_straight(flush_ranks)
+        if straight is not None:
+            best_5 = []
+            used = set()
+            for r in straight:
+                for c in all_cards:
+                    if suit_of(c) == flush_suit and rank_of(c) == r and c not in used:
+                        best_5.append(c)
+                        used.add(c)
+                        break
+            high = straight[0]
             if high == 12:
-                return (make_score(9, high, []), "皇家同花顺")
-            return (make_score(8, high, []), "同花顺")
+                return (make_score(9, high, []), "皇家同花顺", best_5)
+            return (make_score(8, high, []), "同花顺", best_5)
 
+    # 四条
     if counts[0] == 4:
         quad = sorted_by_count[0][0]
-        kickers = sorted([r for r in ranks if r != quad], reverse=True)[:1]
-        return (make_score(7, quad, kickers), "四条")
+        best_5 = list(cards_by_rank[quad][:4])
+        kicker_candidates = [r for r in ranks if r != quad]
+        kicker = max(kicker_candidates, default=0)
+        if kicker_candidates:
+            best_5.append(cards_by_rank[kicker][0])
+        return (make_score(7, quad, [kicker]), "四条", best_5)
 
+    # 葫芦
     if counts[0] == 3 and len(counts) >= 2 and counts[1] >= 2:
         trip = sorted_by_count[0][0]
-        pair = sorted_by_count[1][0]
-        return (make_score(6, trip, [pair]), "葫芦")
+        pair_candidates = [r for r, c in rank_counts.items() if c >= 2 and r != trip]
+        pair_rank = max(pair_candidates) if pair_candidates else 0
+        best_5 = list(cards_by_rank[trip][:3]) + list(cards_by_rank[pair_rank][:2])
+        return (make_score(6, trip, [pair_rank]), "葫芦", best_5)
 
+    # 同花
     if flush_suit:
-        flush_ranks = sorted(
-            [rank_of(c) for c in all_cards if suit_of(c) == flush_suit], reverse=True
-        )[:5]
-        return (make_score(5, flush_ranks[0], flush_ranks[1:]), "同花")
+        flush_cards = [c for c in all_cards if suit_of(c) == flush_suit]
+        flush_cards.sort(key=lambda c: rank_of(c), reverse=True)
+        best_5 = flush_cards[:5]
+        flush_ranks = [rank_of(c) for c in best_5]
+        return (make_score(5, flush_ranks[0], flush_ranks[1:]), "同花", best_5)
 
-    high = straight_high(ranks)
-    if high is not None:
-        return (make_score(4, high, []), "顺子")
+    # 顺子
+    straight = find_straight(ranks)
+    if straight is not None:
+        best_5 = []
+        used = set()
+        for r in straight:
+            for c in all_cards:
+                if rank_of(c) == r and c not in used:
+                    best_5.append(c)
+                    used.add(c)
+                    break
+        return (make_score(4, straight[0], []), "顺子", best_5)
 
+    # 三条
     if counts[0] == 3:
         trip = sorted_by_count[0][0]
+        best_5 = list(cards_by_rank[trip][:3])
         kickers = sorted([r for r in ranks if r != trip], reverse=True)[:2]
-        return (make_score(3, trip, kickers), "三条")
+        for r in kickers:
+            best_5.append(cards_by_rank[r][0])
+        return (make_score(3, trip, kickers), "三条", best_5)
 
+    # 两对
     if counts[0] == 2 and len(counts) >= 2 and counts[1] == 2:
         pairs = sorted([r for r, c in rank_counts.items() if c >= 2], reverse=True)[:2]
-        kicker = max([r for r in ranks if r not in pairs], default=0)
-        return (make_score(2, pairs[0], [pairs[1], kicker]), "两对")
+        best_5 = list(cards_by_rank[pairs[0]][:2]) + list(cards_by_rank[pairs[1]][:2])
+        kicker_candidates = [r for r in ranks if r not in pairs]
+        kicker = max(kicker_candidates, default=0)
+        if kicker_candidates:
+            best_5.append(cards_by_rank[kicker][0])
+        return (make_score(2, pairs[0], [pairs[1], kicker]), "两对", best_5)
 
+    # 一对
     if counts[0] == 2:
         pair = sorted_by_count[0][0]
+        best_5 = list(cards_by_rank[pair][:2])
         kickers = sorted([r for r in ranks if r != pair], reverse=True)[:3]
-        return (make_score(1, pair, kickers), "一对")
+        for r in kickers:
+            best_5.append(cards_by_rank[r][0])
+        return (make_score(1, pair, kickers), "一对", best_5)
 
-    top5 = sorted(ranks, reverse=True)[:5]
-    return (make_score(0, top5[0], top5[1:]), "高牌")
+    # 高牌
+    top5_ranks = sorted(ranks, reverse=True)[:5]
+    best_5 = []
+    for r in top5_ranks:
+        best_5.append(cards_by_rank[r][0])
+    return (make_score(0, top5_ranks[0], top5_ranks[1:]), "高牌", best_5)
 
 
 # ============================================================
@@ -420,7 +471,7 @@ class PokerRoom:
             self.seats[winner_idx].last_action = "获得资源"
 
             winner_hole = list(self.seats[winner_idx].hole_cards)
-            _, hand_name = hand_score_and_name(winner_hole, self.community_cards)
+            _, hand_name, best_5 = hand_score_and_name(winner_hole, self.community_cards)
 
             self.last_result = {
                 "winner_id": winner_pid,
@@ -431,6 +482,7 @@ class PokerRoom:
                         "pid": winner_pid,
                         "cards": winner_hole,
                         "hand_name": hand_name,
+                        "best_5": best_5,
                         "is_winner": True,
                     }
                 ],
@@ -441,11 +493,12 @@ class PokerRoom:
             best_score = -1
             for i in active:
                 hole = list(self.seats[i].hole_cards)
-                score, name = hand_score_and_name(hole, self.community_cards)
+                score, name, best_5 = hand_score_and_name(hole, self.community_cards)
                 showdown_info.append({
                     "pid": self.seats[i].player_id,
                     "cards": hole,
                     "hand_name": name,
+                    "best_5": best_5,
                     "score": score,
                 })
                 if score > best_score:
@@ -679,7 +732,7 @@ else:
                 room.remove_player(my_id)
             st.rerun()
 
-# ---------- 兜底补发：游戏进行中但手牌为空时，重新发牌 ==========
+# ---------- 兜底补发 ----------
 me = room.get_player(my_id)
 if me and room.game_active and not me.folded and not me.hole_cards:
     with server_state_lock["room"] if mode == "multi" else server_state_lock["solo_rooms"]:
@@ -762,6 +815,8 @@ if room.stage == "showdown" and last_result:
         st.write(
             f"{marker}**{info['pid']}**：{cards_to_cn(info['cards'])} —— {info['hand_name']}"
         )
+        if info.get("best_5"):
+            st.caption(f"　　最佳组合：{cards_to_cn(info['best_5'])}")
 
     st.divider()
 
