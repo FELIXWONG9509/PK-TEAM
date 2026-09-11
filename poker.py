@@ -317,7 +317,7 @@ class PokerRoom:
             return
         to_call = self.current_bet - p.current_bet
         if to_call <= 0:
-            p.last_action = "过牌"
+            p.last_action = "check"
         else:
             actual = min(to_call, p.chips)
             p.chips -= actual
@@ -718,23 +718,8 @@ if room.stage == "showdown" and last_result:
 
     st.divider()
 
-# ---------- 主区域：数据看板 ----------
+# ---------- 主区域：席位状态 ----------
 st.subheader("当前情况")
-
-stage_map = {"preflop": "翻牌前", "flop": "翻牌", "turn": "转牌", "river": "河牌", "showdown": "结算"}
-
-col_pot, col_stage = st.columns(2)
-with col_pot:
-    st.markdown(
-        f"<span style='font-size:14pt;'><b>底池：</b>{room.pot:,}</span>",
-        unsafe_allow_html=True,
-    )
-with col_stage:
-    st.markdown(
-        f"<span style='font-size:14pt;'><b>阶段：</b>{stage_map.get(room.stage, room.stage)}</span>",
-        unsafe_allow_html=True,
-    )
-
 st.write("**席位状态**")
 
 table_data = []
@@ -781,7 +766,7 @@ else:
                 process_ai_actions(room)
             st.rerun()
 
-# ---------- 底部：个人信息与公共牌 ----------
+# ---------- 底部：我的信息 + 公共牌 + 底池/阶段 ----------
 st.divider()
 
 me = room.get_player(my_id)
@@ -813,3 +798,20 @@ if room.community_cards:
     st.code(cards_to_cn(room.community_cards))
 else:
     st.caption("等待发牌…")
+
+# ---------- 最底部：底池和阶段 ----------
+stage_map = {"preflop": "翻牌前", "flop": "翻牌", "turn": "转牌", "river": "河牌", "showdown": "结算"}
+
+st.divider()
+
+bot_col1, bot_col2 = st.columns(2)
+with bot_col1:
+    st.markdown(
+        f"<span style='font-size:14pt;'><b>底池：</b>{room.pot:,}</span>",
+        unsafe_allow_html=True,
+    )
+with bot_col2:
+    st.markdown(
+        f"<span style='font-size:14pt;'><b>阶段：</b>{stage_map.get(room.stage, room.stage)}</span>",
+        unsafe_allow_html=True,
+    )
