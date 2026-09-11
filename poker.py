@@ -634,23 +634,23 @@ else:
     already_seated = room.has_player(my_id)
 
     if not already_seated:
-        st.subheader("请选择你的席位")
+        st.subheader("请选择你要进入的会议频道")
 
         if room.is_full():
-            st.warning("当前协作席位已满，请稍后再试。")
+            st.warning("当前会议频道已满，请稍后再试。")
             st.stop()
 
         cols = st.columns(4)
         for i in range(8):
             with cols[i % 4]:
                 if room.is_seat_empty(i):
-                    if st.button(f"席位 {i+1}", key=f"seat_{i}"):
+                    if st.button(f"会议频道{i+1}", key=f"seat_{i}"):
                         with server_state_lock["room"]:
                             room.add_player_at(my_id, i)
                         st.rerun()
                 else:
                     seat = room.seats[i]
-                    st.button(f"席位 {i+1}（{seat.player_id}）", disabled=True, key=f"seat_{i}")
+                    st.button(f"会议频道{i+1}（{seat.player_id}）", disabled=True, key=f"seat_{i}")
 
         st.divider()
         if st.button("单人练习", key="enter_solo"):
