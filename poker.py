@@ -279,9 +279,9 @@ class PokerRoom:
         bb_idx = self._next_active_index(sb_idx)
 
         if sb_idx >= 0:
-            self._post_bet(sb_idx, self.blind_small, "小盲")
+            self._post_bet(sb_idx, self.blind_small, "分包")
         if bb_idx >= 0:
-            self._post_bet(bb_idx, self.blind_big, "大盲")
+            self._post_bet(bb_idx, self.blind_big, "总包")
 
         self.current_bet = self.blind_big
         self.current_turn_index = self._next_active_index(bb_idx)
@@ -725,8 +725,19 @@ st.write("**席位状态**")
 table_data = []
 for i in range(8):
     seat = room.seats[i]
+
+    is_dealer = (i == room.dealer_index) and room.game_active
+    dealer_mark = "业主" if is_dealer else "—"
+
     if seat is None:
-        table_data.append({"席位": i + 1, "标识": "(空位)", "状态": "—", "筹码": "—", "本轮动作": "—"})
+        table_data.append({
+            "席位": i + 1,
+            "标识": "(空位)",
+            "角色": dealer_mark if is_dealer else "—",
+            "状态": "—",
+            "筹码": "—",
+            "本轮动作": "—",
+        })
     else:
         is_me = " ◀" if seat.player_id == my_id else ""
         if seat.folded:
@@ -740,6 +751,7 @@ for i in range(8):
         table_data.append({
             "席位": i + 1,
             "标识": seat.player_id + is_me,
+            "角色": dealer_mark,
             "状态": status,
             "筹码": f"{seat.chips:,}",
             "本轮动作": seat.last_action or "—",
