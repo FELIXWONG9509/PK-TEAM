@@ -844,7 +844,13 @@ if room.current_turn_index >= 0 and room.current_turn_index < room.max_players:
 if me and room.is_my_turn(my_id) and room.game_active:
     st.success("轮到你操作")
 
-    c1, c2, c3 = st.columns([1, 2, 1])
+    # 换阶段/换玩家时，重置追加额度
+    turn_key = (room.stage, room.current_turn_index, room.current_bet)
+    if st.session_state.get("last_raise_turn") != turn_key:
+        st.session_state["raise_amount_main"] = int(room.min_raise)
+        st.session_state["last_raise_turn"] = turn_key
+
+    c1, c2, c3 = st.columns([1, 3, 1])
 
     with c1:
         if st.button("确认当前方案", key="main_call", use_container_width=True):
@@ -856,13 +862,41 @@ if me and room.is_my_turn(my_id) and room.game_active:
             st.rerun()
 
     with c2:
+        my_chips = int(me.chips) if me else 100
+        lower_bound = int(room.min_raise)
+        upper_bound = max(lower_bound, my_chips)
+
+        # 四个快捷追加按钮（在当前金额基础上叠加）
+        q1, q2, q3, q4 = st.columns(4)
+
+        def _bump(inc):
+            cur = int(st.session_state.get("raise_amount_main", lower_bound))
+            st.session_state["raise_amount_main"] = min(cur + inc, upper_bound)
+
+        with q1:
+            if st.button("+100", key="bump_100", use_container_width=True):
+                _bump(100)
+                st.rerun()
+        with q2:
+            if st.button("+500", key="bump_500", use_container_width=True):
+                _bump(500)
+                st.rerun()
+        with q3:
+            if st.button("+1000", key="bump_1000", use_container_width=True):
+                _bump(1000)
+                st.rerun()
+        with q4:
+            if st.button("+5000", key="bump_5000", use_container_width=True):
+                _bump(5000)
+                st.rerun()
+
         amount = st.number_input(
             "追加资源",
-            min_value=room.min_raise,
-            value=room.min_raise,
-            step=room.blind_big,
+            min_value=lower_bound,
+            step=int(room.blind_big),
             key="raise_amount_main",
         )
+
         if st.button("执行调整", key="main_raise", use_container_width=True):
             lock = server_state_lock["solo_rooms"] if mode == "solo" else server_state_lock["room"]
             with lock:
@@ -987,11 +1021,11 @@ else:
                 process_ai_actions(room)
             st.rerun()
 
-# ---------- 我的信息 ----------
+# ---------- 我的项目台账 ----------
 st.divider()
 
 me = room.get_player(my_id)
-st.subheader("我的信息")
+st.subheader("我的项目台账")
 
 info_col1, info_col2, info_col3 = st.columns(3)
 
