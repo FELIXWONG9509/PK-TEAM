@@ -55,9 +55,9 @@ if not st.session_state.invited:
     st.stop()
 
 # ============================================================
-# 房间版本号
+# 房间版本号（改了 Player 结构，必须 +1）
 # ============================================================
-ROOM_VERSION = 12
+ROOM_VERSION = 13
 
 # ============================================================
 # 牌面显示转换
@@ -253,6 +253,7 @@ class Player:
     last_heartbeat: float = 0.0
     folded: bool = False
     is_ai: bool = False
+    total_invested_this_hand: int = 0
 
 
 class PokerRoom:
@@ -348,6 +349,7 @@ class PokerRoom:
                 s.folded = False
                 s.last_action = ""
                 s.current_bet = 0
+                s.total_invested_this_hand = 0
         self.pot = 0
         self.community_cards = []
         self.stage = "preflop"
@@ -386,6 +388,7 @@ class PokerRoom:
         actual = min(amount, p.chips)
         p.chips -= actual
         p.current_bet += actual
+        p.total_invested_this_hand += actual
         self.pot += actual
         p.last_action = action_name
 
@@ -416,6 +419,7 @@ class PokerRoom:
             actual = min(to_call, p.chips)
             p.chips -= actual
             p.current_bet += actual
+            p.total_invested_this_hand += actual
             self.pot += actual
             p.last_action = f"跟注 {actual}"
         self.acted_this_round.add(self._find_index(pid))
@@ -430,6 +434,7 @@ class PokerRoom:
         actual = min(total, p.chips)
         p.chips -= actual
         p.current_bet += actual
+        p.total_invested_this_hand += actual
         self.pot += actual
         self.current_bet = p.current_bet
         p.last_action = f"追加至 {p.current_bet}"
@@ -844,6 +849,12 @@ if room.current_turn_index >= 0 and room.current_turn_index < room.max_players:
 if me and room.is_my_turn(my_id) and room.game_active:
     st.success("轮到你操作")
 
+    inv_col1, inv_col2 = st.columns(2)
+    with inv_col1:
+        st.metric("本轮投入", f"{me.current_bet:,}")
+    with inv_col2:
+        st.metric("整局投入", f"{me.total_invested_this_hand:,}")
+
     turn_key = (room.stage, room.current_turn_index, room.current_bet)
     if st.session_state.get("last_raise_turn") != turn_key:
         st.session_state["raise_amount_main"] = int(room.min_raise)
@@ -852,7 +863,7 @@ if me and room.is_my_turn(my_id) and room.game_active:
     c1, c2, c3 = st.columns([1, 3, 1])
 
     with c1:
-        if st.button("确认当前方案", key="main_call", use_container_width=True):
+        if st.button("check", key="main_call", use_container_width=True):
             lock = server_state_lock["solo_rooms"] if mode == "solo" else server_state_lock["room"]
             with lock:
                 room.player_check_or_call(my_id)
@@ -865,7 +876,6 @@ if me and room.is_my_turn(my_id) and room.game_active:
         lower_bound = int(room.min_raise)
         upper_bound = max(lower_bound, my_chips)
 
-        # 快捷按钮：+100 / +500 / +1000 / +5000 / 清空
         q1, q2, q3, q4, q5 = st.columns(5)
 
         def _bump(inc):
