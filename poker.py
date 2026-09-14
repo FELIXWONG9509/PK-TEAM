@@ -55,7 +55,7 @@ if not st.session_state.invited:
     st.stop()
 
 # ============================================================
-# 房间版本号（改了 Player 结构，必须 +1）
+# 房间版本号
 # ============================================================
 ROOM_VERSION = 13
 
@@ -849,17 +849,38 @@ if room.current_turn_index >= 0 and room.current_turn_index < room.max_players:
 if me and room.is_my_turn(my_id) and room.game_active:
     st.success("轮到你操作")
 
-    inv_col1, inv_col2 = st.columns(2)
-    with inv_col1:
-        st.metric("本轮投入", f"{me.current_bet:,}")
-    with inv_col2:
-        st.metric("整局投入", f"{me.total_invested_this_hand:,}")
-
+    # 先重置/计算状态，再显示
     turn_key = (room.stage, room.current_turn_index, room.current_bet)
     if st.session_state.get("last_raise_turn") != turn_key:
         st.session_state["raise_amount_main"] = int(room.min_raise)
         st.session_state["last_raise_turn"] = turn_key
 
+    lower_bound = int(room.min_raise)
+    my_chips = int(me.chips) if me else 100
+    upper_bound = max(lower_bound, my_chips)
+    raise_amt = int(st.session_state.get("raise_amount_main", lower_bound))
+    to_call = max(0, int(room.current_bet - me.current_bet))
+    will_invest = to_call + raise_amt
+
+    # ============ 第一行信息 ============
+    inv_col1, inv_col2, inv_col3 = st.columns(3)
+    with inv_col1:
+        st.metric("本轮投入", f"{me.current_bet:,}")
+    with inv_col2:
+        st.metric("整局投入", f"{me.total_invested_this_hand:,}")
+    with inv_col3:
+        st.metric("桌面最高", f"{room.current_bet:,}")
+
+    # ============ 第二行信息 ============
+    need_col1, need_col2, need_col3 = st.columns(3)
+    with need_col1:
+        st.metric("需要跟注", f"{to_call:,}")
+    with need_col2:
+        st.metric("我的追加", f"{raise_amt:,}")
+    with need_col3:
+        st.metric("本次投入", f"{will_invest:,}")
+
+    # ============ 操作区 ============
     c1, c2, c3 = st.columns([1, 3, 1])
 
     with c1:
@@ -872,10 +893,6 @@ if me and room.is_my_turn(my_id) and room.game_active:
             st.rerun()
 
     with c2:
-        my_chips = int(me.chips) if me else 100
-        lower_bound = int(room.min_raise)
-        upper_bound = max(lower_bound, my_chips)
-
         q1, q2, q3, q4, q5 = st.columns(5)
 
         def _bump(inc):
