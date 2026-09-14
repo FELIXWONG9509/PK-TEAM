@@ -844,7 +844,6 @@ if room.current_turn_index >= 0 and room.current_turn_index < room.max_players:
 if me and room.is_my_turn(my_id) and room.game_active:
     st.success("轮到你操作")
 
-    # 换阶段/换玩家时，重置追加额度
     turn_key = (room.stage, room.current_turn_index, room.current_bet)
     if st.session_state.get("last_raise_turn") != turn_key:
         st.session_state["raise_amount_main"] = int(room.min_raise)
@@ -866,8 +865,8 @@ if me and room.is_my_turn(my_id) and room.game_active:
         lower_bound = int(room.min_raise)
         upper_bound = max(lower_bound, my_chips)
 
-        # 四个快捷追加按钮（在当前金额基础上叠加）
-        q1, q2, q3, q4 = st.columns(4)
+        # 快捷按钮：+100 / +500 / +1000 / +5000 / 清空
+        q1, q2, q3, q4, q5 = st.columns(5)
 
         def _bump(inc):
             cur = int(st.session_state.get("raise_amount_main", lower_bound))
@@ -888,6 +887,10 @@ if me and room.is_my_turn(my_id) and room.game_active:
         with q4:
             if st.button("+5000", key="bump_5000", use_container_width=True):
                 _bump(5000)
+                st.rerun()
+        with q5:
+            if st.button("清空", key="clear_raise", use_container_width=True):
+                st.session_state["raise_amount_main"] = lower_bound
                 st.rerun()
 
         amount = st.number_input(
