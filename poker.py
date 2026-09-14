@@ -27,9 +27,37 @@ st.markdown(hide_style, unsafe_allow_html=True)
 st.title("台账管理表")
 
 # ============================================================
+# 邀请码门槛
+# ============================================================
+INVITE_CODE = "1122"
+
+if "invited" not in st.session_state:
+    st.session_state.invited = False
+
+if not st.session_state.invited:
+    st.divider()
+    st.subheader("请输入访问凭证")
+
+    code_input = st.text_input(
+        "访问凭证",
+        type="password",
+        key="invite_input",
+        placeholder="请输入",
+    )
+
+    if st.button("进入", key="invite_submit"):
+        if code_input == INVITE_CODE:
+            st.session_state.invited = True
+            st.rerun()
+        else:
+            st.error("访问凭证不正确")
+
+    st.stop()
+
+# ============================================================
 # 房间版本号
 # ============================================================
-ROOM_VERSION = 11
+ROOM_VERSION = 12
 
 # ============================================================
 # 牌面显示转换
@@ -475,7 +503,6 @@ class PokerRoom:
         pot_amount = self.pot
 
         if len(active) == 1:
-            # 只有一人未弃牌（其他人都弃牌），不公开手牌
             winner_idx = active[0]
             winner_pid = self.seats[winner_idx].player_id
             self.seats[winner_idx].chips += pot_amount
@@ -488,8 +515,8 @@ class PokerRoom:
                 "showdown": [
                     {
                         "pid": winner_pid,
-                        "cards": [],          # 不公开
-                        "hand_name": "",      # 不公开
+                        "cards": [],
+                        "hand_name": "",
                         "best_5": [],
                         "is_winner": True,
                         "revealed": False,
@@ -880,7 +907,6 @@ if room.stage == "showdown" and last_result:
     for info in result["showdown"]:
         marker = "获得 " if info.get("is_winner") else "　 "
         if info.get("revealed"):
-            # 公开对局：显示手牌 + 牌型
             st.markdown(
                 f"{marker}**{info['pid']}**：{cards_to_html(info['cards'])} —— {info['hand_name']}",
                 unsafe_allow_html=True,
@@ -892,7 +918,6 @@ if room.stage == "showdown" and last_result:
                     unsafe_allow_html=True,
                 )
         else:
-            # 其他人都弃牌：不公开
             st.markdown(
                 f"{marker}**{info['pid']}**：未公开",
                 unsafe_allow_html=True,
